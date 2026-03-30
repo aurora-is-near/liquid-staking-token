@@ -1,0 +1,22 @@
+[package]
+name = "liquid-staking-token-tests"
+description = "End-to-end tests for NEAR Liquid Staking Token"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+liquid-staking-token = { path = "../token" }
+
+anyhow.workspace = true
+cargo-near-build = { workspace = true, features = ["build_internal"] }
+defuse.workspace = true
+near-api.workspace = true
+near-sandbox.workspace = true
+near-sdk = { workspace = true, features = ["unit-testing"] }
+rand.workspace = true
+testresult.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-retry.workspace = true
+
+[lints]
+workspace = true

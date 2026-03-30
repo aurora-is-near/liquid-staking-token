@@ -1,0 +1,35 @@
+use near_sdk::{Gas, NearToken, near};
+
+use crate::{LiquidStakingToken, LiquidStakingTokenExt};
+
+pub use stake::StakeMessage;
+pub use unstake::{UnstakeMessage, WithdrawTokens};
+
+mod stake;
+mod unstake;
+mod withdraw;
+
+const MODIFY_STAKED_AMOUNT_GAS: Gas = Gas::from_tgas(1);
+const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
+const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(35);
+const FT_TRANSFER_CALL_GAS_DEFAULT: Gas = Gas::from_tgas(35);
+
+#[near]
+impl LiquidStakingToken {
+    #[private]
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn modify_total_staked_amount(&mut self, amount: NearToken) {
+        self.total_staked_amount = amount;
+    }
+}
+
+#[inline]
+fn calculate_min_gas(min_gas: Option<Gas>, is_call: bool) -> Gas {
+    let (min, default) = if is_call {
+        (FT_TRANSFER_CALL_GAS_MIN, FT_TRANSFER_CALL_GAS_DEFAULT)
+    } else {
+        (FT_TRANSFER_GAS, FT_TRANSFER_GAS)
+    };
+
+    min_gas.unwrap_or(default).max(min)
+}
