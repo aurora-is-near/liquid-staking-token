@@ -1,0 +1,41 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86"
+repository = "https://github.com/aurora-is-near/liquid-staking-token"
+
+[workspace]
+resolver = "3"
+members = [
+    "token",
+    "e2e-tests",
+]
+
+[workspace.dependencies]
+anyhow = "1"
+cargo-near-build = "0.11"
+defuse = { git = "https://github.com/near/intents", tag = "defuse/v0.4.2" }
+near-api = "0.8"
+near-contract-standards = "5"
+near-plugins = "0.5"
+near-sandbox = { git = "https://github.com/aleksuss/near-sandbox-rs.git", rev = "f48b497" }
+near-sdk = "5"
+rand = "0.10"
+testresult = "0.4"
+tokio = "1"
+tokio-retry = "0.3"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+similar_names = "allow"
+needless_pass_by_value = "allow"
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
