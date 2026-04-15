@@ -1,3 +1,4 @@
+use near_api::NearToken;
 use testresult::TestResult;
 
 use crate::env::ft::FT_STORAGE_DEPOSIT;
@@ -223,6 +224,36 @@ async fn test_stake_with_native_near_and_get_on_nep141_with_registration() -> Te
             .saturating_add(STAKE_AMOUNT)
             .saturating_add(FT_STORAGE_DEPOSIT)
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_storage_deposit_exceeding_amount_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    // Attach 1 NEAR but request a 2 NEAR storage deposit — contract must panic.
+    let deposit = NearToken::from_near(1);
+    let oversized_storage_deposit = NearToken::from_near(2);
+
+    let result = env
+        .lst
+        .stake(
+            alice,
+            deposit,
+            stake_message(alice.id(), Some(oversized_storage_deposit), None::<&str>),
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Expected stake to fail when storage_deposit exceeds the attached amount"
+    );
+
+    // No tokens minted, locked balance unchanged.
+    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
 
     Ok(())
 }

@@ -11,6 +11,67 @@ use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 #[tokio::test]
+async fn test_withdraw_before_cooldown_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&str>),
+        )
+        .await?;
+
+    let unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_msg)
+        .await?;
+
+    // Cooldown not elapsed — withdrawal must fail.
+    let result = env.lst.withdraw(alice, &unstake_msg).await;
+    assert!(
+        result.is_err(),
+        "Expected withdrawal to fail before cooldown"
+    );
+
+    // The unstake queue entry is still intact; waiting and retrying must succeed.
+    env.wait_unstake_cooldown().await?;
+    env.lst.withdraw(alice, &unstake_msg).await?;
+
+    assert_eq!(
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(NearToken::from_yoctonear(2)), // add_public_key + ft_transfer_call
+        INITIAL_BALANCE
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_withdraw_nonexistent_stake_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    // Alice never staked or unstaked, so the queue has no matching entry.
+    let unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
+    let result = env.lst.withdraw(alice, &unstake_msg).await;
+    assert!(
+        result.is_err(),
+        "Expected withdrawal to fail when no matching unstake entry exists"
+    );
+
+    // State unchanged.
+    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_unstake_native_by_withdrawing_lst_from_intents() -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
@@ -109,6 +170,50 @@ async fn test_unstake_native_by_sending_lst_back() -> TestResult {
 }
 
 #[tokio::test]
+async fn test_partial_unstake_preserves_remaining_lst() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    let partial = STAKE_AMOUNT.saturating_div(4); // unstake 25%
+    let remaining = STAKE_AMOUNT.saturating_sub(partial);
+
+    let unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), partial, &unstake_msg)
+        .await?;
+
+    // 75% of LST must remain with alice; total supply tracks it.
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, remaining);
+    assert_eq!(env.lst.ft_total_supply().await?, remaining);
+
+    env.wait_unstake_cooldown().await?;
+
+    // Locked balance reflects only the staked portion.
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(remaining)
+    );
+
+    env.lst.withdraw(alice, &unstake_msg).await?;
+
+    // After withdrawal the 75% of LST is untouched.
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, remaining);
+    assert_eq!(env.lst.ft_total_supply().await?, remaining);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
@@ -133,9 +238,6 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;
-
-    env.fast_forward(1).await?;
-
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;

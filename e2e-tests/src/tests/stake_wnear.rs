@@ -183,11 +183,10 @@ async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> Tes
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
     let message = stake_message(&unregistered, None, None::<&AccountId>);
-    let result = env
-        .wnear
+
+    env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
-    dbg!(result);
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK);
@@ -231,11 +230,10 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_unregistered() -> Te
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
     let message = stake_message(env.defuse.id(), None, Some(alice.id()));
-    let result = env
-        .wnear
+
+    env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
-    dbg!(result);
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));

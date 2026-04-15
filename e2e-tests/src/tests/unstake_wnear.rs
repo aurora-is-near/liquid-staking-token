@@ -131,10 +131,10 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked.as_near(), INIT_LOCK.as_near());
 
-    let result = env.lst.withdraw(alice, &unstake_message).await?;
-    dbg!(result);
+    env.lst.withdraw(alice, &unstake_message).await?;
 
     let wnear_defuse_balance = env.wnear.ft_balance_of(alice.id()).await?;
+
     assert_eq!(
         wnear_defuse_balance,
         STAKE_AMOUNT.saturating_sub(FT_STORAGE_DEPOSIT)
@@ -244,9 +244,6 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;
-
-    env.fast_forward(1).await?;
-
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;

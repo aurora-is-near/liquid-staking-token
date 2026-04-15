@@ -2,6 +2,7 @@ use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
 use near_sdk::serde_json;
 
+mod multi_user;
 mod stake_native;
 mod stake_wnear;
 mod unstake_native;

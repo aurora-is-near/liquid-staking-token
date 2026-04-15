@@ -57,56 +57,6 @@ impl UnstakeMessage {
 
 #[near]
 impl LiquidStakingToken {
-    pub(crate) fn handle_unstaking(
-        &self,
-        sender_id: AccountId,
-        amount: U128,
-        msg: String,
-    ) -> PromiseOrValue<U128> {
-        let args: UnstakeMessage = near_sdk::serde_json::from_str(&msg)
-            .unwrap_or_else(|_| env::panic_str("Invalid msg format"));
-        let msg_hash = args
-            .hash()
-            .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
-
-        let unstake_amount = NearToken::from_yoctonear(amount.0);
-
-        require!(
-            unstake_amount <= self.total_staked_amount,
-            "Attempt to unstake more than staked"
-        );
-
-        let new_locked_balance = env::account_locked_balance()
-            .checked_sub(unstake_amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while calculating new locked balance"));
-        let new_total_staked_amount = self
-            .total_staked_amount
-            .checked_sub(unstake_amount)
-            .unwrap_or_else(|| {
-                env::panic_str("Overflow while calculating new total staked amount")
-            });
-
-        Promise::new(env::current_account_id())
-            .stake(new_locked_balance, self.validator_public_key.clone())
-            .function_call(
-                "modify_total_staked_amount",
-                json!({
-                    "amount": new_total_staked_amount,
-                })
-                .to_string()
-                .into_bytes(),
-                NearToken::ZERO,
-                MODIFY_STAKED_AMOUNT_GAS,
-            )
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .with_static_gas(ON_UNSTAKE_GAS)
-                    .on_unstake(sender_id, amount, msg_hash),
-            )
-            .into()
-    }
-
     #[private]
     pub fn on_unstake(
         &mut self,
@@ -134,5 +84,54 @@ impl LiquidStakingToken {
                 PromiseOrValue::Value(amount)
             }
         }
+    }
+}
+
+impl LiquidStakingToken {
+    pub(crate) fn handle_unstaking(
+        &self,
+        sender_id: AccountId,
+        amount: U128,
+        msg: String,
+    ) -> PromiseOrValue<U128> {
+        let args: UnstakeMessage = near_sdk::serde_json::from_str(&msg)
+            .unwrap_or_else(|_| env::panic_str("Invalid msg format"));
+        let msg_hash = args
+            .hash()
+            .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
+
+        let unstake_amount = NearToken::from_yoctonear(amount.0);
+
+        require!(
+            unstake_amount <= self.total_staked_amount,
+            "Attempt to unstake more than staked"
+        );
+
+        let new_total_staked_amount = self
+            .total_staked_amount
+            .checked_sub(unstake_amount)
+            .unwrap_or_else(|| {
+                env::panic_str("Overflow while calculating new total staked amount")
+            });
+
+        Promise::new(env::current_account_id())
+            .stake(new_total_staked_amount, self.validator_public_key.clone())
+            .function_call(
+                "modify_total_staked_amount",
+                json!({
+                    "amount": new_total_staked_amount,
+                })
+                .to_string()
+                .into_bytes(),
+                NearToken::ZERO,
+                MODIFY_STAKED_AMOUNT_GAS,
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .with_static_gas(ON_UNSTAKE_GAS)
+                    .on_unstake(sender_id, amount, msg_hash),
+            )
+            .into()
     }
 }

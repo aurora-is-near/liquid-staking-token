@@ -38,28 +38,6 @@ impl LiquidStakingToken {
         self.stake_and_deposit(amount_to_stake, args, Some(env::predecessor_account_id()))
     }
 
-    // The method is called by the `ft_on_transfer` callback.
-    pub(crate) fn handle_staking(
-        &self,
-        _sender_id: AccountId,
-        amount: U128,
-        msg: String,
-    ) -> PromiseOrValue<U128> {
-        let args = serde_json::from_str::<StakeMessage>(&msg)
-            .unwrap_or_else(|_| env::panic_str("Invalid format of the message"));
-
-        ext_wnear::ext(self.wnear_id.clone())
-            .with_attached_deposit(ONE_YOCTO)
-            .with_static_gas(NEAR_WITHDRAW_GAS)
-            .near_withdraw(amount)
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .on_near_withdraw(amount, args),
-            )
-            .into()
-    }
-
     #[private]
     pub fn on_near_withdraw(&mut self, amount: U128, args: StakeMessage) -> PromiseOrValue<U128> {
         require!(
@@ -68,105 +46,6 @@ impl LiquidStakingToken {
         );
 
         self.stake_and_deposit(NearToken::from_yoctonear(amount.0), args, None)
-    }
-
-    pub(crate) fn stake_and_deposit(
-        &mut self,
-        amount: NearToken,
-        args: StakeMessage,
-        refund_to: Option<AccountId>,
-    ) -> PromiseOrValue<U128> {
-        let stake_amount = amount
-            .checked_sub(args.storage_deposit.unwrap_or_default())
-            .unwrap_or_else(|| {
-                env::panic_str("Storage deposit cannot be greater than the staked amount")
-            });
-
-        // TODO: Recalculate the amount_staked_tokens regarding the locked balance
-        let amount_staked_token = stake_amount;
-
-        self.token.internal_deposit(
-            &env::current_account_id(),
-            amount_staked_token.as_yoctonear(),
-        );
-
-        let new_locked_balance = env::account_locked_balance()
-            .checked_add(stake_amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while calculating new locked balance"));
-        let new_total_staked_amount = self
-            .total_staked_amount
-            .checked_add(stake_amount)
-            .unwrap_or_else(|| {
-                env::panic_str("Overflow while calculating new total staked amount")
-            });
-
-        let mut promise = Promise::new(env::current_account_id())
-            .stake(new_locked_balance, self.validator_public_key.clone())
-            .function_call_weight(
-                "modify_total_staked_amount".to_string(),
-                json!({
-                    "amount": new_total_staked_amount,
-                })
-                .to_string()
-                .into_bytes(),
-                NearToken::ZERO,
-                MODIFY_STAKED_AMOUNT_GAS,
-                GasWeight(0),
-            );
-
-        if let Some(storage_deposit) = args.storage_deposit {
-            promise = promise.function_call(
-                "storage_deposit".to_string(),
-                json!({
-                    "account_id": args.receiver_id,
-                    "registration_only": false,
-                })
-                .to_string()
-                .into_bytes(),
-                storage_deposit,
-                Gas::from_tgas(2),
-            );
-        }
-
-        let is_call = args.msg.is_some();
-        let min_gas = calculate_min_gas(args.min_gas, is_call);
-
-        if let Some(msg) = args.msg {
-            promise = promise.function_call_weight(
-                "ft_transfer_call".to_string(),
-                json!({
-                    "receiver_id": args.receiver_id,
-                    "amount": amount_staked_token,
-                    "memo": args.memo,
-                    "msg": msg,
-                })
-                .to_string()
-                .into_bytes(),
-                ONE_YOCTO,
-                min_gas,
-                GasWeight(1),
-            );
-        } else {
-            promise = promise.function_call(
-                "ft_transfer".to_string(),
-                json!({
-                    "receiver_id": args.receiver_id,
-                    "amount": amount_staked_token,
-                })
-                .to_string()
-                .into_bytes(),
-                ONE_YOCTO,
-                min_gas,
-            );
-        }
-
-        promise
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .on_stake_and_deposit(amount, amount_staked_token, refund_to, is_call),
-            )
-            .into()
     }
 
     #[private]
@@ -241,5 +120,125 @@ impl LiquidStakingToken {
                 PromiseOrValue::Value(NearToken::ZERO)
             }
         }
+    }
+}
+
+impl LiquidStakingToken {
+    // The method is called by the `ft_on_transfer` callback.
+    pub(crate) fn handle_staking(
+        &self,
+        _sender_id: AccountId,
+        amount: U128,
+        msg: String,
+    ) -> PromiseOrValue<U128> {
+        let args = serde_json::from_str::<StakeMessage>(&msg)
+            .unwrap_or_else(|_| env::panic_str("Invalid format of the message"));
+
+        ext_wnear::ext(self.wnear_id.clone())
+            .with_attached_deposit(ONE_YOCTO)
+            .with_static_gas(NEAR_WITHDRAW_GAS)
+            .near_withdraw(amount)
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .on_near_withdraw(amount, args),
+            )
+            .into()
+    }
+
+    pub(crate) fn stake_and_deposit(
+        &mut self,
+        amount: NearToken,
+        args: StakeMessage,
+        refund_to: Option<AccountId>,
+    ) -> PromiseOrValue<U128> {
+        let stake_amount = amount
+            .checked_sub(args.storage_deposit.unwrap_or_default())
+            .unwrap_or_else(|| {
+                env::panic_str("Storage deposit cannot be greater than the staked amount")
+            });
+
+        // TODO: Recalculate the amount_staked_tokens regarding the locked balance
+        let amount_staked_token = stake_amount;
+
+        self.token.internal_deposit(
+            &env::current_account_id(),
+            amount_staked_token.as_yoctonear(),
+        );
+
+        let new_total_staked_amount = self
+            .total_staked_amount
+            .checked_add(stake_amount)
+            .unwrap_or_else(|| {
+                env::panic_str("Overflow while calculating new total staked amount")
+            });
+
+        let mut promise = Promise::new(env::current_account_id())
+            .stake(new_total_staked_amount, self.validator_public_key.clone())
+            .function_call_weight(
+                "modify_total_staked_amount".to_string(),
+                json!({
+                    "amount": new_total_staked_amount,
+                })
+                .to_string()
+                .into_bytes(),
+                NearToken::ZERO,
+                MODIFY_STAKED_AMOUNT_GAS,
+                GasWeight(0),
+            );
+
+        if let Some(storage_deposit) = args.storage_deposit {
+            promise = promise.function_call(
+                "storage_deposit".to_string(),
+                json!({
+                    "account_id": args.receiver_id,
+                    "registration_only": false,
+                })
+                .to_string()
+                .into_bytes(),
+                storage_deposit,
+                Gas::from_tgas(2),
+            );
+        }
+
+        let is_call = args.msg.is_some();
+        let min_gas = calculate_min_gas(args.min_gas, is_call);
+
+        if let Some(msg) = args.msg {
+            promise = promise.function_call_weight(
+                "ft_transfer_call".to_string(),
+                json!({
+                    "receiver_id": args.receiver_id,
+                    "amount": amount_staked_token,
+                    "memo": args.memo,
+                    "msg": msg,
+                })
+                .to_string()
+                .into_bytes(),
+                ONE_YOCTO,
+                min_gas,
+                GasWeight(1),
+            );
+        } else {
+            promise = promise.function_call(
+                "ft_transfer".to_string(),
+                json!({
+                    "receiver_id": args.receiver_id,
+                    "amount": amount_staked_token,
+                })
+                .to_string()
+                .into_bytes(),
+                ONE_YOCTO,
+                min_gas,
+            );
+        }
+
+        promise
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .on_stake_and_deposit(amount, amount_staked_token, refund_to, is_call),
+            )
+            .into()
     }
 }
