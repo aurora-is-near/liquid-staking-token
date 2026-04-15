@@ -11,9 +11,9 @@ use near_sdk::{
 
 mod core;
 mod metadata;
+pub mod pool;
 mod receiver;
 mod resolver;
-pub mod staking;
 mod storage;
 mod traits;
 
@@ -53,6 +53,7 @@ pub struct LiquidStakingToken {
     token: FungibleToken,
     metadata: FungibleTokenMetadata,
     unstake_queue: LookupMap<CryptoHash, (u128, u64)>,
+    // owner_id: AccountId,
     wnear_id: AccountId,
     validator_public_key: PublicKey,
     total_staked_amount: NearToken,
@@ -80,6 +81,7 @@ impl LiquidStakingToken {
             token,
             metadata,
             unstake_queue: LookupMap::new(StorageKey::UnstakeQueue),
+            // owner_id: owner_id.clone(),
             wnear_id,
             validator_public_key,
             total_staked_amount: init_lock.unwrap_or(NearToken::ZERO),

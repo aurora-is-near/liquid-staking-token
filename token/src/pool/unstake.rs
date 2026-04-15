@@ -4,7 +4,7 @@ use near_sdk::{
     AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, env, near, require,
 };
 
-use crate::staking::MODIFY_STAKED_AMOUNT_GAS;
+use crate::pool::MODIFY_STAKED_AMOUNT_GAS;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);

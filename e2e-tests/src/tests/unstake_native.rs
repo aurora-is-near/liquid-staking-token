@@ -1,4 +1,4 @@
-use liquid_staking_token::staking::WithdrawTokens;
+use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
 use testresult::TestResult;
 

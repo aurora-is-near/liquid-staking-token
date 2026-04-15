@@ -4,7 +4,7 @@ use near_sdk::{
     AccountId, Gas, GasWeight, NearToken, Promise, PromiseOrValue, env, near, require, serde_json,
 };
 
-use crate::staking::{MODIFY_STAKED_AMOUNT_GAS, calculate_min_gas};
+use crate::pool::{MODIFY_STAKED_AMOUNT_GAS, calculate_min_gas};
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
@@ -173,7 +173,7 @@ impl LiquidStakingToken {
     pub fn on_stake_and_deposit(
         &mut self,
         amount_to_stake: NearToken,
-        amount_staked_token: NearToken,
+        amount_staked_tokens: NearToken,
         refund_to: Option<AccountId>,
         is_call: bool,
     ) -> PromiseOrValue<U128> {
@@ -197,7 +197,7 @@ impl LiquidStakingToken {
             }
             Err(e) => {
                 near_sdk::log!("Error while staking: {e}");
-                amount_staked_token
+                amount_staked_tokens
             }
         };
 

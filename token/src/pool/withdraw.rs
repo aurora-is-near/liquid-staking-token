@@ -3,8 +3,8 @@ use near_sdk::{
     AccountId, CryptoHash, Gas, GasWeight, NearToken, Promise, PromiseOrValue, env, near, require,
 };
 
-use crate::staking::calculate_min_gas;
-use crate::staking::unstake::{UnstakeMessage, WithdrawTokens};
+use crate::pool::calculate_min_gas;
+use crate::pool::unstake::{UnstakeMessage, WithdrawTokens};
 use crate::traits::NEAR_DEPOSIT_GAS;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 

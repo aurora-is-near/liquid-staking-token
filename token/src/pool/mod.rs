@@ -1,4 +1,4 @@
-use near_sdk::{Gas, NearToken, near};
+use near_sdk::{AccountId, Gas, NearToken, PublicKey, env, near};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
@@ -16,6 +16,23 @@ const FT_TRANSFER_CALL_GAS_DEFAULT: Gas = Gas::from_tgas(35);
 
 #[near]
 impl LiquidStakingToken {
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn get_number_of_accounts(&self) -> u64 {
+        1
+    }
+
+    pub fn get_reward_fee_fraction(&self) -> near_sdk::serde_json::Value {
+        near_sdk::serde_json::json!({ "numerator": 1, "denominator": 10 })
+    }
+
+    pub fn get_staking_key(&self) -> PublicKey {
+        self.validator_public_key.clone()
+    }
+
+    pub fn get_owner_id(&self) -> AccountId {
+        env::current_account_id()
+    }
+
     #[private]
     #[allow(clippy::missing_const_for_fn)]
     pub fn modify_total_staked_amount(&mut self, amount: NearToken) {
