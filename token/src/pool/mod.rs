@@ -9,10 +9,10 @@ mod stake;
 mod unstake;
 mod withdraw;
 
-const MODIFY_STAKED_AMOUNT_GAS: Gas = Gas::from_tgas(1);
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
-const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(35);
-const FT_TRANSFER_CALL_GAS_DEFAULT: Gas = Gas::from_tgas(35);
+const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
+const MODIFY_STAKED_AMOUNT_GAS: Gas = Gas::from_tgas(1);
+const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
 
 #[near]
 impl LiquidStakingToken {
@@ -35,18 +35,31 @@ impl LiquidStakingToken {
 
     #[private]
     #[allow(clippy::missing_const_for_fn)]
-    pub fn modify_total_staked_amount(&mut self, amount: NearToken) {
-        self.total_staked_amount = amount;
+    pub fn modify_total_staked_amount(
+        &mut self,
+        total_staked_amount: NearToken,
+        staked_tokens: NearToken,
+        is_stake: bool,
+    ) {
+        self.total_staked_amount = total_staked_amount;
+
+        if is_stake {
+            self.token
+                .internal_deposit(&env::current_account_id(), staked_tokens.as_yoctonear());
+        } else {
+            self.token
+                .internal_withdraw(&env::current_account_id(), staked_tokens.as_yoctonear());
+        }
     }
 }
 
 #[inline]
 fn calculate_min_gas(min_gas: Option<Gas>, is_call: bool) -> Gas {
-    let (min, default) = if is_call {
-        (FT_TRANSFER_CALL_GAS_MIN, FT_TRANSFER_CALL_GAS_DEFAULT)
+    let min = if is_call {
+        FT_TRANSFER_CALL_GAS_MIN
     } else {
-        (FT_TRANSFER_GAS, FT_TRANSFER_GAS)
+        FT_TRANSFER_GAS
     };
 
-    min_gas.unwrap_or(default).max(min)
+    min_gas.unwrap_or(min).max(min)
 }

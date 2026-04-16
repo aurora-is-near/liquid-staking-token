@@ -1,10 +1,9 @@
 use near_sdk::json_types::U128;
-use near_sdk::serde_json::json;
 use near_sdk::{
-    AccountId, Gas, GasWeight, NearToken, Promise, PromiseOrValue, env, near, require, serde_json,
+    AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require, serde_json,
 };
 
-use crate::pool::{MODIFY_STAKED_AMOUNT_GAS, calculate_min_gas};
+use crate::pool::{MODIFY_STAKED_AMOUNT_GAS, STORAGE_DEPOSIT_GAS, calculate_min_gas};
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
@@ -33,13 +32,13 @@ impl LiquidStakingToken {
     /// Allow staking tokens by depositing attached native NEAR to the contract to itself
     /// or to another optional account to the corresponding direction.
     #[payable]
-    pub fn stake(&mut self, args: StakeMessage) -> PromiseOrValue<U128> {
+    pub fn stake(&mut self, args: StakeMessage) -> Promise {
         let amount_to_stake = env::attached_deposit();
         self.stake_and_deposit(amount_to_stake, args, Some(env::predecessor_account_id()))
     }
 
     #[private]
-    pub fn on_near_withdraw(&mut self, amount: U128, args: StakeMessage) -> PromiseOrValue<U128> {
+    pub fn on_near_withdraw(&mut self, amount: U128, args: StakeMessage) -> Promise {
         require!(
             env::promise_result_checked(0, 0).is_ok(),
             "Failed to withdraw NEAR from wNEAR"
@@ -83,31 +82,25 @@ impl LiquidStakingToken {
         if refund_staked_tokens.is_zero() {
             PromiseOrValue::Value(U128(0))
         } else {
-            self.token.internal_withdraw(
-                &env::current_account_id(),
-                refund_staked_tokens.as_yoctonear(),
-            );
             // Recalculate the refund of staked tokens to near if case of partial refund of staked tokens.
             let refund_near = amount_to_stake;
-            refund_to.map_or_else(
-                || {
-                    ext_wnear::ext(self.wnear_id.clone())
-                        .with_attached_deposit(refund_near)
-                        .with_static_gas(NEAR_DEPOSIT_GAS)
-                        .with_unused_gas_weight(1)
-                        .near_deposit()
-                        .then(
-                            Self::ext(env::current_account_id())
-                                .with_unused_gas_weight(1)
-                                .refund_wnear_deposit(refund_near),
-                        )
-                        .into()
-                },
-                |account_id| {
-                    Promise::new(account_id).transfer(refund_near).detach();
-                    PromiseOrValue::Value(U128(0))
-                },
-            )
+            refund_to
+                .map_or_else(
+                    || {
+                        ext_wnear::ext(self.wnear_id.clone())
+                            .with_attached_deposit(refund_near)
+                            .with_static_gas(NEAR_DEPOSIT_GAS)
+                            .with_unused_gas_weight(1)
+                            .near_deposit()
+                            .then(
+                                Self::ext(env::current_account_id())
+                                    .with_unused_gas_weight(1)
+                                    .refund_wnear_deposit(refund_near),
+                            )
+                    },
+                    |account_id| Promise::new(account_id).transfer(refund_near),
+                )
+                .into()
         }
     }
 
@@ -137,6 +130,7 @@ impl LiquidStakingToken {
         ext_wnear::ext(self.wnear_id.clone())
             .with_attached_deposit(ONE_YOCTO)
             .with_static_gas(NEAR_WITHDRAW_GAS)
+            .with_unused_gas_weight(0)
             .near_withdraw(amount)
             .then(
                 Self::ext(env::current_account_id())
@@ -147,11 +141,11 @@ impl LiquidStakingToken {
     }
 
     pub(crate) fn stake_and_deposit(
-        &mut self,
+        &self,
         amount: NearToken,
         args: StakeMessage,
         refund_to: Option<AccountId>,
-    ) -> PromiseOrValue<U128> {
+    ) -> Promise {
         let stake_amount = amount
             .checked_sub(args.storage_deposit.unwrap_or_default())
             .unwrap_or_else(|| {
@@ -159,12 +153,7 @@ impl LiquidStakingToken {
             });
 
         // TODO: Recalculate the amount_staked_tokens regarding the locked balance
-        let amount_staked_token = stake_amount;
-
-        self.token.internal_deposit(
-            &env::current_account_id(),
-            amount_staked_token.as_yoctonear(),
-        );
+        let staked_tokens = stake_amount;
 
         let new_total_staked_amount = self
             .total_staked_amount
@@ -174,71 +163,53 @@ impl LiquidStakingToken {
             });
 
         let mut promise = Promise::new(env::current_account_id())
-            .stake(new_total_staked_amount, self.validator_public_key.clone())
-            .function_call_weight(
-                "modify_total_staked_amount".to_string(),
-                json!({
-                    "amount": new_total_staked_amount,
-                })
-                .to_string()
-                .into_bytes(),
-                NearToken::ZERO,
-                MODIFY_STAKED_AMOUNT_GAS,
-                GasWeight(0),
-            );
+            // The problem here is that attached 1 yoctoNEAR to `ft_transfer_*` is included
+            // in the return value, and the user gets more by 1 yoctoNEAR than they attached.
+            // .refund_to(env::refund_to_account_id())
+            // .transfer(env::attached_deposit())
+            .stake(new_total_staked_amount, self.validator_public_key.clone());
+
+        promise = Self::ext_on(promise)
+            .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
+            .with_unused_gas_weight(0)
+            .modify_total_staked_amount(new_total_staked_amount, staked_tokens, true);
 
         if let Some(storage_deposit) = args.storage_deposit {
-            promise = promise.function_call(
-                "storage_deposit".to_string(),
-                json!({
-                    "account_id": args.receiver_id,
-                    "registration_only": false,
-                })
-                .to_string()
-                .into_bytes(),
-                storage_deposit,
-                Gas::from_tgas(2),
-            );
+            promise = Self::ext_on(promise)
+                .with_attached_deposit(storage_deposit)
+                .with_static_gas(STORAGE_DEPOSIT_GAS)
+                .storage_deposit(Some(args.receiver_id.clone()), Some(false));
         }
 
         let is_call = args.msg.is_some();
         let min_gas = calculate_min_gas(args.min_gas, is_call);
 
         if let Some(msg) = args.msg {
-            promise = promise.function_call_weight(
-                "ft_transfer_call".to_string(),
-                json!({
-                    "receiver_id": args.receiver_id,
-                    "amount": amount_staked_token,
-                    "memo": args.memo,
-                    "msg": msg,
-                })
-                .to_string()
-                .into_bytes(),
-                ONE_YOCTO,
-                min_gas,
-                GasWeight(1),
-            );
+            promise = Self::ext_on(promise)
+                .with_attached_deposit(ONE_YOCTO)
+                .with_static_gas(min_gas)
+                .with_unused_gas_weight(1)
+                .ft_transfer_call(
+                    args.receiver_id,
+                    staked_tokens.as_yoctonear().into(),
+                    args.memo,
+                    msg,
+                );
         } else {
-            promise = promise.function_call(
-                "ft_transfer".to_string(),
-                json!({
-                    "receiver_id": args.receiver_id,
-                    "amount": amount_staked_token,
-                })
-                .to_string()
-                .into_bytes(),
-                ONE_YOCTO,
-                min_gas,
-            );
+            promise = Self::ext_on(promise)
+                .with_attached_deposit(ONE_YOCTO)
+                .with_static_gas(min_gas)
+                .ft_transfer(
+                    args.receiver_id,
+                    staked_tokens.as_yoctonear().into(),
+                    args.memo,
+                );
         }
 
-        promise
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .on_stake_and_deposit(amount, amount_staked_token, refund_to, is_call),
-            )
-            .into()
+        promise.then(
+            Self::ext(env::current_account_id())
+                .with_unused_gas_weight(1)
+                .on_stake_and_deposit(amount, staked_tokens, refund_to, is_call),
+        )
     }
 }

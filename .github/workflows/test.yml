@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Run cargo clippy
         run: |
           rustup component add clippy
@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install cargo-near CLI
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/download/cargo-near-v0.20.0/cargo-near-installer.sh | sh
       - name: Run cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace -- --test-threads=4

@@ -1,6 +1,6 @@
 use near_sdk::serde_json::json;
 use near_sdk::{
-    AccountId, CryptoHash, Gas, GasWeight, NearToken, Promise, PromiseOrValue, env, near, require,
+    AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, env, near, require,
 };
 
 use crate::pool::calculate_min_gas;
@@ -32,6 +32,47 @@ impl LiquidStakingToken {
         }
     }
 
+    #[private]
+    pub fn on_withdraw_transfer(
+        &mut self,
+        msg_hash: CryptoHash,
+        amount: NearToken,
+        is_call: bool,
+    ) -> PromiseOrValue<NearToken> {
+        require!(
+            env::promise_results_count() == 1,
+            "Invalid promise results count"
+        );
+        let max_len = if is_call { 44 } else { 0 };
+
+        match env::promise_result_checked(0, max_len) {
+            Ok(bytes) => {
+                if is_call {
+                    let consumed = near_sdk::serde_json::from_slice::<NearToken>(&bytes)
+                        .unwrap_or_else(|_| {
+                            env::panic_str("Error while parsing withdrawal result");
+                        });
+
+                    if consumed < amount {
+                        // TODO: Handle this case.
+                        near_sdk::log!("Withdrawal result is less than the amount");
+                    }
+                }
+
+                near_sdk::log!("Withdraw successful");
+                self.unstake_queue.remove(&msg_hash);
+
+                PromiseOrValue::Value(NearToken::ZERO)
+            }
+            Err(e) => {
+                near_sdk::log!("Error while withdraw transfer: {e}");
+                PromiseOrValue::Value(amount)
+            }
+        }
+    }
+}
+
+impl LiquidStakingToken {
     fn withdraw_native(
         &mut self,
         receiver_id: AccountId,
@@ -89,35 +130,27 @@ impl LiquidStakingToken {
         let is_call = msg.is_some();
         let min_gas = calculate_min_gas(min_gas, is_call);
         let is_call = if let Some(msg) = msg {
-            promise = promise.function_call_weight(
-                "ft_transfer_call",
-                json!({
-                    "receiver_id": args.receiver_id,
-                    "amount": amount_to_withdraw,
-                    "memo": memo,
-                    "msg": msg,
-                })
-                .to_string()
-                .as_bytes(),
-                ONE_YOCTO,
-                min_gas,
-                GasWeight(1),
-            );
+            promise = Self::ext_on(promise)
+                .with_attached_deposit(ONE_YOCTO)
+                .with_static_gas(min_gas)
+                .with_unused_gas_weight(1)
+                .ft_transfer_call(
+                    args.receiver_id,
+                    amount_to_withdraw.as_yoctonear().into(),
+                    memo,
+                    msg,
+                );
 
             true
         } else {
-            promise = promise.function_call(
-                "ft_transfer",
-                json!({
-                    "receiver_id": args.receiver_id,
-                    "amount": amount_to_withdraw,
-                    "memo": None::<String>,
-                })
-                .to_string()
-                .as_bytes(),
-                ONE_YOCTO,
-                min_gas,
-            );
+            promise = Self::ext_on(promise)
+                .with_attached_deposit(ONE_YOCTO)
+                .with_static_gas(min_gas)
+                .ft_transfer(
+                    args.receiver_id,
+                    amount_to_withdraw.as_yoctonear().into(),
+                    memo,
+                );
 
             false
         };
@@ -127,44 +160,5 @@ impl LiquidStakingToken {
                 .with_unused_gas_weight(1)
                 .on_withdraw_transfer(msg_hash, amount_to_withdraw, is_call),
         )
-    }
-
-    #[private]
-    pub fn on_withdraw_transfer(
-        &mut self,
-        msg_hash: CryptoHash,
-        amount: NearToken,
-        is_call: bool,
-    ) -> PromiseOrValue<NearToken> {
-        require!(
-            env::promise_results_count() == 1,
-            "Invalid promise results count"
-        );
-        let max_len = if is_call { 44 } else { 0 };
-
-        match env::promise_result_checked(0, max_len) {
-            Ok(bytes) => {
-                if is_call {
-                    let consumed = near_sdk::serde_json::from_slice::<NearToken>(&bytes)
-                        .unwrap_or_else(|_| {
-                            env::panic_str("Error while parsing withdrawal result");
-                        });
-
-                    if consumed < amount {
-                        // TODO: Handle this case.
-                        near_sdk::log!("Withdrawal result is less than the amount");
-                    }
-                }
-
-                near_sdk::log!("Withdraw successful");
-                self.unstake_queue.remove(&msg_hash);
-
-                PromiseOrValue::Value(NearToken::ZERO)
-            }
-            Err(e) => {
-                near_sdk::log!("Error while withdraw transfer: {e}");
-                PromiseOrValue::Value(amount)
-            }
-        }
     }
 }
