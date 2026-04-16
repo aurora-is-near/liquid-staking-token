@@ -53,7 +53,7 @@ pub struct LiquidStakingToken {
     token: FungibleToken,
     metadata: FungibleTokenMetadata,
     unstake_queue: LookupMap<CryptoHash, (u128, u64)>,
-    // owner_id: AccountId,
+    owner_id: AccountId,
     wnear_id: AccountId,
     validator_public_key: PublicKey,
     total_staked_amount: NearToken,
@@ -81,7 +81,7 @@ impl LiquidStakingToken {
             token,
             metadata,
             unstake_queue: LookupMap::new(StorageKey::UnstakeQueue),
-            // owner_id: owner_id.clone(),
+            owner_id: owner_id.clone(),
             wnear_id,
             validator_public_key,
             total_staked_amount: init_lock.unwrap_or(NearToken::ZERO),
@@ -90,7 +90,9 @@ impl LiquidStakingToken {
         contract.grant_roles(&owner_id);
         contract
     }
+}
 
+impl LiquidStakingToken {
     fn grant_roles(&mut self, admin_account_id: &AccountId) {
         let mut acl = self.acl_get_or_init();
         acl.add_super_admin_unchecked(admin_account_id);
@@ -105,9 +107,3 @@ impl LiquidStakingToken {
         acl.grant_role_unchecked(Role::UnpauseManager, admin_account_id);
     }
 }
-
-/*
-Questions:
-1. Could we accept deposits for staking from different accounts?
-2. Could we register an account using deposited tokens (storage deposit)?
- */

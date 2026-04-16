@@ -12,11 +12,11 @@ impl FungibleTokenReceiver for LiquidStakingToken {
         amount: U128,
         msg: String,
     ) -> PromiseOrValue<U128> {
-        let predecessor_id = env::predecessor_account_id();
+        let token_id = env::predecessor_account_id();
 
-        if predecessor_id == self.wnear_id {
+        if token_id == self.wnear_id {
             self.handle_staking(sender_id, amount, msg)
-        } else if predecessor_id == env::current_account_id() {
+        } else if token_id == env::current_account_id() {
             self.handle_unstaking(sender_id, amount, msg)
         } else {
             env::panic_str("Invalid token account ID");

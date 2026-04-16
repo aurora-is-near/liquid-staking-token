@@ -1,5 +1,4 @@
 use near_sdk::json_types::U128;
-use near_sdk::serde_json::json;
 use near_sdk::{
     AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, env, near, require,
 };
@@ -69,8 +68,6 @@ impl LiquidStakingToken {
             Ok(_) => {
                 near_sdk::log!("Unstake successful");
                 let epoch_id = env::epoch_height();
-                self.token
-                    .internal_withdraw(&env::current_account_id(), amount.0);
                 let (unstake_amount, unstake_epoch) =
                     self.unstake_queue.entry(msg_hash).or_insert((0, epoch_id));
 
@@ -114,24 +111,19 @@ impl LiquidStakingToken {
                 env::panic_str("Overflow while calculating new total staked amount")
             });
 
-        Promise::new(env::current_account_id())
-            .stake(new_total_staked_amount, self.validator_public_key.clone())
-            .function_call(
-                "modify_total_staked_amount",
-                json!({
-                    "amount": new_total_staked_amount,
-                })
-                .to_string()
-                .into_bytes(),
-                NearToken::ZERO,
-                MODIFY_STAKED_AMOUNT_GAS,
-            )
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .with_static_gas(ON_UNSTAKE_GAS)
-                    .on_unstake(sender_id, amount, msg_hash),
-            )
-            .into()
+        Self::ext_on(
+            Promise::new(env::current_account_id())
+                .stake(new_total_staked_amount, self.validator_public_key.clone()),
+        )
+        .with_unused_gas_weight(0)
+        .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
+        .modify_total_staked_amount(new_total_staked_amount, unstake_amount, false)
+        .then(
+            Self::ext(env::current_account_id())
+                .with_unused_gas_weight(1)
+                .with_static_gas(ON_UNSTAKE_GAS)
+                .on_unstake(sender_id, amount, msg_hash),
+        )
+        .into()
     }
 }
