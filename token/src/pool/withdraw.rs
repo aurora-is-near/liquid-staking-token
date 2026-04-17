@@ -103,41 +103,43 @@ impl LiquidStakingToken {
             .with_attached_deposit(amount_to_withdraw)
             .near_deposit();
 
-        if args.receiver_id == env::current_account_id() {
-            return promise;
-        }
+        let is_call = if args.receiver_id != env::current_account_id() {
+            if let Some(storage_deposit) = storage_deposit {
+                promise = ext_storage_management::ext_on(promise)
+                    .with_static_gas(STORAGE_DEPOSIT_GAS)
+                    .with_attached_deposit(storage_deposit)
+                    .storage_deposit(Some(args.receiver_id.clone()), None);
+            }
 
-        if let Some(storage_deposit) = storage_deposit {
-            promise = ext_storage_management::ext_on(promise)
-                .with_static_gas(STORAGE_DEPOSIT_GAS)
-                .with_attached_deposit(storage_deposit)
-                .storage_deposit(Some(args.receiver_id.clone()), None);
-        }
+            let is_call = msg.is_some();
+            let min_gas = calculate_min_gas(min_gas, is_call);
 
-        let is_call = msg.is_some();
-        let min_gas = calculate_min_gas(min_gas, is_call);
+            if let Some(msg) = msg {
+                promise = ext_ft_core::ext_on(promise)
+                    .with_attached_deposit(ONE_YOCTO)
+                    .with_static_gas(min_gas)
+                    .with_unused_gas_weight(1)
+                    .ft_transfer_call(
+                        args.receiver_id,
+                        amount_to_withdraw.as_yoctonear().into(),
+                        memo,
+                        msg,
+                    );
+            } else {
+                promise = ext_ft_core::ext_on(promise)
+                    .with_attached_deposit(ONE_YOCTO)
+                    .with_static_gas(min_gas)
+                    .ft_transfer(
+                        args.receiver_id,
+                        amount_to_withdraw.as_yoctonear().into(),
+                        memo,
+                    );
+            }
 
-        if let Some(msg) = msg {
-            promise = ext_ft_core::ext_on(promise)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(min_gas)
-                .with_unused_gas_weight(1)
-                .ft_transfer_call(
-                    args.receiver_id,
-                    amount_to_withdraw.as_yoctonear().into(),
-                    memo,
-                    msg,
-                );
+            is_call
         } else {
-            promise = ext_ft_core::ext_on(promise)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(min_gas)
-                .ft_transfer(
-                    args.receiver_id,
-                    amount_to_withdraw.as_yoctonear().into(),
-                    memo,
-                );
-        }
+            false
+        };
 
         promise.then(
             Self::ext(env::current_account_id())
