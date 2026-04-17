@@ -17,6 +17,13 @@ pub trait FungibleToken {
         amount: NearToken,
         msg: impl ToString,
     ) -> anyhow::Result<ExecutionSuccess>;
+    async fn ft_on_transfer(
+        &self,
+        sender: &Account,
+        sender_id: &AccountId,
+        amount: NearToken,
+        msg: impl ToString,
+    ) -> anyhow::Result<ExecutionSuccess>;
     async fn ft_storage_deposit(&self, account_id: &AccountId) -> anyhow::Result<()>;
 }
 
@@ -58,6 +65,31 @@ impl FungibleToken for Contract {
             )
             .transaction()
             .deposit(NearToken::from_yoctonear(1))
+            .max_gas()
+            .with_signer(sender.id().clone(), sender.signer())
+            .send_to(self.config())
+            .await?
+            .into_result()
+            .map_err(Into::into)
+    }
+
+    async fn ft_on_transfer(
+        &self,
+        sender: &Account,
+        sender_id: &AccountId,
+        amount: NearToken,
+        msg: impl ToString,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function(
+                "ft_on_transfer",
+                json!({
+                    "sender_id": sender_id,
+                    "amount": amount,
+                    "msg": msg.to_string(),
+                }),
+            )
+            .transaction()
             .max_gas()
             .with_signer(sender.id().clone(), sender.signer())
             .send_to(self.config())

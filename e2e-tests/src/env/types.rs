@@ -52,6 +52,14 @@ impl Contract {
         }
     }
 
+    pub fn as_account(&self) -> Account {
+        Account::new(
+            self.inner.as_account(),
+            self.config.clone(),
+            Arc::clone(&self.signer),
+        )
+    }
+
     pub fn id(&self) -> &near_api::AccountId {
         self.inner.account_id()
     }
