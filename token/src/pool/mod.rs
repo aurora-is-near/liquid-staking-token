@@ -1,4 +1,4 @@
-use near_sdk::{AccountId, Gas, NearToken, PublicKey, env, near};
+use near_sdk::{AccountId, Gas, NearToken, PublicKey, near};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
@@ -30,13 +30,14 @@ impl LiquidStakingToken {
     }
 
     pub fn get_owner_id(&self) -> AccountId {
-        env::current_account_id()
+        self.owner_id.clone()
     }
 
     #[private]
     #[allow(clippy::missing_const_for_fn)]
     pub fn modify_total_staked_amount(
         &mut self,
+        account_id: &AccountId,
         total_staked_amount: NearToken,
         staked_tokens: NearToken,
         is_stake: bool,
@@ -45,10 +46,10 @@ impl LiquidStakingToken {
 
         if is_stake {
             self.token
-                .internal_deposit(&env::current_account_id(), staked_tokens.as_yoctonear());
+                .internal_deposit(account_id, staked_tokens.as_yoctonear());
         } else {
             self.token
-                .internal_withdraw(&env::current_account_id(), staked_tokens.as_yoctonear());
+                .internal_withdraw(account_id, staked_tokens.as_yoctonear());
         }
     }
 }
