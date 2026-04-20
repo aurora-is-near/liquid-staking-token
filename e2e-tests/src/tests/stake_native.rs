@@ -42,6 +42,44 @@ async fn test_stake_with_native_near_and_get_on_intents() -> TestResult {
 }
 
 #[tokio::test]
+async fn test_stake_with_native_near_and_attempt_to_send_on_intents_with_bad_account() -> TestResult
+{
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let alice_native_balance_before = alice.near_balance().await?;
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(env.defuse.id(), None, Some("a2933a$$%$1!@!#@!@")), // Triggers a panic in `ft_on_transfer` on intents.
+        )
+        .await?;
+
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(env.lst.ft_balance_of(env.defuse.id()).await?, STAKE_AMOUNT); // Tokens stuck on the contract balance
+    assert_eq!(env.lst.ft_total_supply().await?, STAKE_AMOUNT);
+
+    assert_eq!(
+        env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?,
+        ZERO_AMOUNT
+    ); // No tokens on intents minted
+
+    let alice_native_balance_after = alice.near_balance().await?;
+    assert_eq!(
+        alice_native_balance_before.total,
+        alice_native_balance_after
+            .total
+            .saturating_add(STAKE_AMOUNT)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_stake_with_native_near_and_get_on_intents_bob() -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
@@ -166,13 +204,15 @@ async fn test_stake_with_native_near_and_get_on_nep141_without_registration() ->
     let alice = env.alice();
     let alice_native_balance_before = alice.near_balance().await?;
 
-    env.lst
+    let result = env
+        .lst
         .stake(
             alice,
             STAKE_AMOUNT,
             stake_message(alice.id(), None, None::<&str>),
         )
-        .await?;
+        .await;
+    assert!(result.is_err());
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK);

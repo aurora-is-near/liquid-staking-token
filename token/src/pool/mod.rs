@@ -1,4 +1,4 @@
-use near_sdk::{AccountId, Gas, NearToken, PublicKey, env, near};
+use near_sdk::{AccountId, Gas, NearToken, PublicKey, near};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
@@ -13,6 +13,7 @@ const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
 const MODIFY_STAKED_AMOUNT_GAS: Gas = Gas::from_tgas(1);
 const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
+const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
 #[near]
 impl LiquidStakingToken {
@@ -30,13 +31,14 @@ impl LiquidStakingToken {
     }
 
     pub fn get_owner_id(&self) -> AccountId {
-        env::current_account_id()
+        self.owner_id.clone()
     }
 
     #[private]
     #[allow(clippy::missing_const_for_fn)]
     pub fn modify_total_staked_amount(
         &mut self,
+        account_id: &AccountId,
         total_staked_amount: NearToken,
         staked_tokens: NearToken,
         is_stake: bool,
@@ -45,10 +47,10 @@ impl LiquidStakingToken {
 
         if is_stake {
             self.token
-                .internal_deposit(&env::current_account_id(), staked_tokens.as_yoctonear());
+                .internal_deposit(account_id, staked_tokens.as_yoctonear());
         } else {
             self.token
-                .internal_withdraw(&env::current_account_id(), staked_tokens.as_yoctonear());
+                .internal_withdraw(account_id, staked_tokens.as_yoctonear());
         }
     }
 }

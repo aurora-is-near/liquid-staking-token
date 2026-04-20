@@ -1,9 +1,13 @@
+use near_contract_standards::fungible_token::receiver::ext_ft_receiver;
+use near_contract_standards::storage_management::ext_storage_management;
 use near_sdk::json_types::U128;
 use near_sdk::{
     AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require, serde_json,
 };
 
-use crate::pool::{MODIFY_STAKED_AMOUNT_GAS, STORAGE_DEPOSIT_GAS, calculate_min_gas};
+use crate::pool::{
+    MAX_RESULT_LENGTH, MODIFY_STAKED_AMOUNT_GAS, STORAGE_DEPOSIT_GAS, calculate_min_gas,
+};
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
@@ -27,6 +31,12 @@ pub struct StakeMessage {
     pub min_gas: Option<Gas>,
 }
 
+#[near(serializers = [json])]
+pub enum DepositToken {
+    Native,
+    Wnear,
+}
+
 #[near]
 impl LiquidStakingToken {
     /// Allow staking tokens by depositing attached native NEAR to the contract to itself
@@ -34,7 +44,7 @@ impl LiquidStakingToken {
     #[payable]
     pub fn stake(&mut self, args: StakeMessage) -> Promise {
         let amount_to_stake = env::attached_deposit();
-        self.stake_and_deposit(amount_to_stake, args, Some(env::predecessor_account_id()))
+        self.stake_and_deposit(amount_to_stake, args, DepositToken::Native)
     }
 
     #[private]
@@ -44,7 +54,11 @@ impl LiquidStakingToken {
             "Failed to withdraw NEAR from wNEAR"
         );
 
-        self.stake_and_deposit(NearToken::from_yoctonear(amount.0), args, None)
+        self.stake_and_deposit(
+            NearToken::from_yoctonear(amount.0),
+            args,
+            DepositToken::Wnear,
+        )
     }
 
     #[private]
@@ -52,67 +66,81 @@ impl LiquidStakingToken {
         &mut self,
         amount_to_stake: NearToken,
         amount_staked_tokens: NearToken,
-        refund_to: Option<AccountId>,
-        is_call: bool,
+        args: StakeMessage,
+        deposit_token: DepositToken,
     ) -> PromiseOrValue<U128> {
-        let max_len = if is_call { 44 } else { 0 };
-        let refund_staked_tokens = match env::promise_result_checked(0, max_len) {
-            Ok(bytes) => {
-                if is_call {
-                    let refund = serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-                        near_sdk::log!("Failed to parse the refund amount");
-                        NearToken::ZERO
-                    });
+        match env::promise_result_checked(0, 0) {
+            Ok(_) => {
+                if let Some(msg) = args.msg {
+                    let min_gas = calculate_min_gas(args.min_gas, true);
 
-                    if !refund.is_zero() {
-                        near_sdk::log!("Partial refund of staked tokens: {}", refund);
-                    }
-
-                    // TODO: Find out what to do with the partial refund of staked tokens.
+                    ext_ft_receiver::ext(args.receiver_id.clone())
+                        .with_static_gas(min_gas)
+                        .with_unused_gas_weight(1)
+                        .ft_on_transfer(
+                            env::current_account_id(),
+                            amount_staked_tokens.as_yoctonear().into(),
+                            msg,
+                        )
+                        .then(
+                            Self::ext(env::current_account_id())
+                                .with_unused_gas_weight(1)
+                                .on_ft_on_transfer(),
+                        )
+                        .into()
+                } else {
+                    PromiseOrValue::Value(U128(0))
                 }
-
-                NearToken::ZERO
             }
-            Err(e) => {
-                near_sdk::log!("Error while staking: {e}");
-                amount_staked_tokens
-            }
-        };
-
-        if refund_staked_tokens.is_zero() {
-            PromiseOrValue::Value(U128(0))
-        } else {
-            // Recalculate the refund of staked tokens to near if case of partial refund of staked tokens.
-            let refund_near = amount_to_stake;
-            refund_to
-                .map_or_else(
-                    || {
-                        ext_wnear::ext(self.wnear_id.clone())
-                            .with_attached_deposit(refund_near)
-                            .with_static_gas(NEAR_DEPOSIT_GAS)
+            Err(_) => match deposit_token {
+                DepositToken::Native => env::panic_str("Error while staking native NEAR"),
+                DepositToken::Wnear => ext_wnear::ext(self.wnear_id.clone())
+                    .with_attached_deposit(amount_to_stake)
+                    .with_static_gas(NEAR_DEPOSIT_GAS)
+                    .with_unused_gas_weight(1)
+                    .near_deposit()
+                    .then(
+                        Self::ext(env::current_account_id())
                             .with_unused_gas_weight(1)
-                            .near_deposit()
-                            .then(
-                                Self::ext(env::current_account_id())
-                                    .with_unused_gas_weight(1)
-                                    .refund_wnear_deposit(refund_near),
-                            )
-                    },
-                    |account_id| Promise::new(account_id).transfer(refund_near),
-                )
-                .into()
+                            .refund_wnear_deposit(amount_to_stake),
+                    )
+                    .into(),
+            },
         }
     }
 
     #[private]
-    pub fn refund_wnear_deposit(&mut self, amount: NearToken) -> PromiseOrValue<NearToken> {
+    pub fn refund_wnear_deposit(&mut self, amount: NearToken) -> PromiseOrValue<U128> {
         match env::promise_result_checked(0, 0) {
-            Ok(_) => PromiseOrValue::Value(amount),
+            Ok(_) => PromiseOrValue::Value(amount.as_yoctonear().into()),
             Err(e) => {
                 near_sdk::log!("Error while depositing near to wNEAR: {e}");
-                PromiseOrValue::Value(NearToken::ZERO)
+                PromiseOrValue::Value(0.into())
             }
         }
+    }
+
+    #[private]
+    pub fn on_ft_on_transfer(&mut self) -> PromiseOrValue<U128> {
+        // Looks like we can just log a fail in the `ft_on_transfer` since in this receipt
+        // tokens are already staked, and we can't do anything with it. So tokens will be stuck
+        // on the contract account id in case of failure or partial refund.
+        match env::promise_result_checked(0, MAX_RESULT_LENGTH) {
+            Ok(bytes) => {
+                if let Ok(refund) = serde_json::from_slice::<U128>(&bytes) {
+                    if refund.0 > 0 {
+                        near_sdk::log!("Refund in the ft_on_transfer: {}", refund.0);
+                    }
+                } else {
+                    near_sdk::log!("Invalid format of the result in the ft_on_transfer");
+                }
+            }
+            Err(_) => {
+                near_sdk::log!("Error occurred in the ft_on_transfer");
+            }
+        }
+
+        PromiseOrValue::Value(0.into())
     }
 }
 
@@ -126,7 +154,6 @@ impl LiquidStakingToken {
     ) -> PromiseOrValue<U128> {
         let args = serde_json::from_str::<StakeMessage>(&msg)
             .unwrap_or_else(|_| env::panic_str("Invalid format of the message"));
-
         ext_wnear::ext(self.wnear_id.clone())
             .with_attached_deposit(ONE_YOCTO)
             .with_static_gas(NEAR_WITHDRAW_GAS)
@@ -144,7 +171,7 @@ impl LiquidStakingToken {
         &self,
         amount: NearToken,
         args: StakeMessage,
-        refund_to: Option<AccountId>,
+        deposit_token: DepositToken,
     ) -> Promise {
         let stake_amount = amount
             .checked_sub(args.storage_deposit.unwrap_or_default())
@@ -163,53 +190,31 @@ impl LiquidStakingToken {
             });
 
         let mut promise = Promise::new(env::current_account_id())
-            // The problem here is that attached 1 yoctoNEAR to `ft_transfer_*` is included
-            // in the return value, and the user gets more by 1 yoctoNEAR than they attached.
-            // .refund_to(env::refund_to_account_id())
-            // .transfer(env::attached_deposit())
+            .refund_to(env::refund_to_account_id())
+            .transfer(env::attached_deposit())
             .stake(new_total_staked_amount, self.validator_public_key.clone());
 
-        promise = Self::ext_on(promise)
-            .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
-            .with_unused_gas_weight(0)
-            .modify_total_staked_amount(new_total_staked_amount, staked_tokens, true);
-
         if let Some(storage_deposit) = args.storage_deposit {
-            promise = Self::ext_on(promise)
+            promise = ext_storage_management::ext_on(promise)
                 .with_attached_deposit(storage_deposit)
                 .with_static_gas(STORAGE_DEPOSIT_GAS)
                 .storage_deposit(Some(args.receiver_id.clone()), Some(false));
         }
 
-        let is_call = args.msg.is_some();
-        let min_gas = calculate_min_gas(args.min_gas, is_call);
-
-        if let Some(msg) = args.msg {
-            promise = Self::ext_on(promise)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(min_gas)
-                .with_unused_gas_weight(1)
-                .ft_transfer_call(
-                    args.receiver_id,
-                    staked_tokens.as_yoctonear().into(),
-                    args.memo,
-                    msg,
-                );
-        } else {
-            promise = Self::ext_on(promise)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(min_gas)
-                .ft_transfer(
-                    args.receiver_id,
-                    staked_tokens.as_yoctonear().into(),
-                    args.memo,
-                );
-        }
+        promise = Self::ext_on(promise)
+            .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
+            .with_unused_gas_weight(0)
+            .modify_total_staked_amount(
+                &args.receiver_id,
+                new_total_staked_amount,
+                staked_tokens,
+                true,
+            );
 
         promise.then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
-                .on_stake_and_deposit(amount, staked_tokens, refund_to, is_call),
+                .on_stake_and_deposit(amount, staked_tokens, args, deposit_token),
         )
     }
 }

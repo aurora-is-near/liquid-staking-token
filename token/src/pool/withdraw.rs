@@ -1,11 +1,11 @@
-use near_sdk::serde_json::json;
-use near_sdk::{
-    AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, env, near, require,
-};
+use near_contract_standards::fungible_token::core::ext_ft_core;
+use near_contract_standards::storage_management::ext_storage_management;
+use near_sdk::json_types::U128;
+use near_sdk::{AccountId, CryptoHash, NearToken, Promise, PromiseOrValue, env, near, require};
 
-use crate::pool::calculate_min_gas;
 use crate::pool::unstake::{UnstakeMessage, WithdrawTokens};
-use crate::traits::NEAR_DEPOSIT_GAS;
+use crate::pool::{MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, calculate_min_gas};
+use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
 const UNSTAKE_COOLDOWN_PERIOD: u64 = 4;
@@ -23,7 +23,7 @@ impl LiquidStakingToken {
 
         require!(
             *epoch + UNSTAKE_COOLDOWN_PERIOD <= env::epoch_height(),
-            "It's too early to withdraw"
+            "The cooldown hasn't passed yet"
         );
 
         match args.withdraw_tokens {
@@ -38,37 +38,48 @@ impl LiquidStakingToken {
         msg_hash: CryptoHash,
         amount: NearToken,
         is_call: bool,
-    ) -> PromiseOrValue<NearToken> {
+    ) -> PromiseOrValue<U128> {
         require!(
             env::promise_results_count() == 1,
             "Invalid promise results count"
         );
-        let max_len = if is_call { 44 } else { 0 };
+        let max_len = if is_call { MAX_RESULT_LENGTH } else { 0 };
 
-        match env::promise_result_checked(0, max_len) {
+        let refund = match env::promise_result_checked(0, max_len) {
             Ok(bytes) => {
                 if is_call {
-                    let consumed = near_sdk::serde_json::from_slice::<NearToken>(&bytes)
+                    let consumed = near_sdk::serde_json::from_slice::<U128>(&bytes)
+                        .map(|value| NearToken::from_yoctonear(value.0))
                         .unwrap_or_else(|_| {
                             env::panic_str("Error while parsing withdrawal result");
                         });
 
-                    if consumed < amount {
-                        // TODO: Handle this case.
-                        near_sdk::log!("Withdrawal result is less than the amount");
+                    let refund = amount.checked_sub(consumed).unwrap_or_else(|| {
+                        env::panic_str("Consumed amount exceeds the withdrawal amount")
+                    });
+
+                    if refund.is_zero() {
+                        self.unstake_queue.remove(&msg_hash);
+                    } else {
+                        let (amount_to_withdraw, _) = self.unstake_queue.get_mut(&msg_hash)
+                            .unwrap_or_else(|| env::panic_str("There is no withdrawal in the unstake queue for the given message hash"));
+
+                        *amount_to_withdraw = refund.as_yoctonear();
                     }
+
+                    refund
+                } else {
+                    self.unstake_queue.remove(&msg_hash);
+                    NearToken::ZERO
                 }
-
-                near_sdk::log!("Withdraw successful");
-                self.unstake_queue.remove(&msg_hash);
-
-                PromiseOrValue::Value(NearToken::ZERO)
             }
             Err(e) => {
                 near_sdk::log!("Error while withdraw transfer: {e}");
-                PromiseOrValue::Value(amount)
+                amount
             }
-        }
+        };
+
+        PromiseOrValue::Value(refund.as_yoctonear().into())
     }
 }
 
@@ -94,65 +105,56 @@ impl LiquidStakingToken {
             env::panic_str("Invalid withdraw tokens type");
         };
 
-        let (mut promise, amount_to_withdraw) = if let Some(storage_deposit) = storage_deposit {
-            let amount_to_withdraw = NearToken::from_yoctonear(amount)
-                .checked_sub(storage_deposit)
-                .unwrap_or_else(|| env::panic_str("Storage deposit exceeds the withdrawal amount"));
-            (
-                Promise::new(self.wnear_id.clone())
-                    .function_call("near_deposit", vec![], amount_to_withdraw, NEAR_DEPOSIT_GAS)
-                    .function_call(
-                        "storage_deposit",
-                        json!({
-                            "account_id": args.receiver_id,
-                            "registration_only": null,
-                        })
-                        .to_string()
-                        .into_bytes(),
-                        storage_deposit,
-                        Gas::from_tgas(2),
-                    ),
-                amount_to_withdraw,
-            )
-        } else {
-            let amount_to_withdraw = NearToken::from_yoctonear(amount);
-            (
-                Promise::new(self.wnear_id.clone()).function_call(
-                    "near_deposit",
-                    vec![],
-                    amount_to_withdraw,
-                    NEAR_DEPOSIT_GAS,
-                ),
-                amount_to_withdraw,
-            )
-        };
+        require!(
+            args.receiver_id != env::current_account_id() || storage_deposit.is_none(),
+            "There couldn't be a storage_deposit for the current account withdrawal"
+        );
 
-        let is_call = msg.is_some();
-        let min_gas = calculate_min_gas(min_gas, is_call);
-        let is_call = if let Some(msg) = msg {
-            promise = Self::ext_on(promise)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(min_gas)
-                .with_unused_gas_weight(1)
-                .ft_transfer_call(
-                    args.receiver_id,
-                    amount_to_withdraw.as_yoctonear().into(),
-                    memo,
-                    msg,
-                );
+        let amount_to_withdraw = NearToken::from_yoctonear(amount)
+            .checked_sub(storage_deposit.unwrap_or_default())
+            .unwrap_or_else(|| env::panic_str("Storage deposit exceeds the withdrawal amount"));
 
-            true
-        } else {
-            promise = Self::ext_on(promise)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(min_gas)
-                .ft_transfer(
-                    args.receiver_id,
-                    amount_to_withdraw.as_yoctonear().into(),
-                    memo,
-                );
+        let mut promise = ext_wnear::ext(self.wnear_id.clone())
+            .with_static_gas(NEAR_DEPOSIT_GAS)
+            .with_attached_deposit(amount_to_withdraw)
+            .near_deposit();
 
+        let is_call = if args.receiver_id == env::current_account_id() {
             false
+        } else {
+            if let Some(storage_deposit) = storage_deposit {
+                promise = ext_storage_management::ext_on(promise)
+                    .with_static_gas(STORAGE_DEPOSIT_GAS)
+                    .with_attached_deposit(storage_deposit)
+                    .storage_deposit(Some(args.receiver_id.clone()), None);
+            }
+
+            let is_call = msg.is_some();
+            let min_gas = calculate_min_gas(min_gas, is_call);
+
+            if let Some(msg) = msg {
+                promise = ext_ft_core::ext_on(promise)
+                    .with_attached_deposit(ONE_YOCTO)
+                    .with_static_gas(min_gas)
+                    .with_unused_gas_weight(1)
+                    .ft_transfer_call(
+                        args.receiver_id,
+                        amount_to_withdraw.as_yoctonear().into(),
+                        memo,
+                        msg,
+                    );
+            } else {
+                promise = ext_ft_core::ext_on(promise)
+                    .with_attached_deposit(ONE_YOCTO)
+                    .with_static_gas(min_gas)
+                    .ft_transfer(
+                        args.receiver_id,
+                        amount_to_withdraw.as_yoctonear().into(),
+                        memo,
+                    );
+            }
+
+            is_call
         };
 
         promise.then(

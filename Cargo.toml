@@ -19,7 +19,7 @@ near-api = "0.8"
 near-contract-standards = "5"
 near-plugins = "0.5"
 near-sandbox = { git = "https://github.com/aleksuss/near-sandbox-rs.git", rev = "f48b497" }
-near-sdk = "5"
+near-sdk = { version = "5", features = ["deterministic-account-ids"] }
 rand = "0.10"
 testresult = "0.4"
 tokio = "1"

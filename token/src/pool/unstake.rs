@@ -117,7 +117,12 @@ impl LiquidStakingToken {
         )
         .with_unused_gas_weight(0)
         .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
-        .modify_total_staked_amount(new_total_staked_amount, unstake_amount, false)
+        .modify_total_staked_amount(
+            &env::current_account_id(),
+            new_total_staked_amount,
+            unstake_amount,
+            false,
+        )
         .then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)

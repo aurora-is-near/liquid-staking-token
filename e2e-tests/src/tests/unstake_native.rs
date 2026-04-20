@@ -271,3 +271,108 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_stake_native_near_by_itself_and_unstake_native_to_itself() -> TestResult {
+    let env = Env::builder().build().await?;
+    let lst_init_balance = env.lst.near_balance().await?;
+
+    env.lst
+        .stake(
+            &env.lst.as_account(),
+            STAKE_AMOUNT,
+            stake_message(env.lst.id(), None, None::<&String>),
+        )
+        .await?;
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+
+    let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
+    assert_eq!(lst_balance, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(env.lst.id(), WithdrawTokens::Native);
+
+    env.lst
+        .ft_on_transfer(
+            &env.lst.as_account(),
+            env.lst.id(),
+            STAKE_AMOUNT,
+            &unstake_message,
+        )
+        .await?;
+
+    let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
+    assert_eq!(lst_balance, ZERO_AMOUNT);
+
+    let total_supply = env.lst.ft_total_supply().await?;
+    assert_eq!(total_supply, ZERO_AMOUNT);
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst
+        .withdraw(&env.lst.as_account(), &unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.near_balance().await?, lst_init_balance);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_near_by_itself_and_unstake_native_to_alice() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    let alice_init_balance = alice.near_balance().await?;
+    let lst_init_balance = env.lst.near_balance().await?;
+
+    env.lst
+        .stake(
+            &env.lst.as_account(),
+            STAKE_AMOUNT,
+            stake_message(env.lst.id(), None, None::<&String>),
+        )
+        .await?;
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+
+    let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
+    assert_eq!(lst_balance, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(alice.id(), WithdrawTokens::Native);
+
+    env.lst
+        .ft_on_transfer(
+            &env.lst.as_account(),
+            env.lst.id(),
+            STAKE_AMOUNT,
+            &unstake_message,
+        )
+        .await?;
+
+    let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
+    assert_eq!(lst_balance, ZERO_AMOUNT);
+
+    let total_supply = env.lst.ft_total_supply().await?;
+    assert_eq!(total_supply, ZERO_AMOUNT);
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst
+        .withdraw(&env.lst.as_account(), &unstake_message)
+        .await?;
+
+    assert_eq!(
+        env.lst.near_balance().await?.total,
+        lst_init_balance.total.saturating_sub(STAKE_AMOUNT)
+    );
+
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_init_balance.total.saturating_add(STAKE_AMOUNT)
+    );
+
+    Ok(())
+}
