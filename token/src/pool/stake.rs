@@ -185,19 +185,26 @@ impl LiquidStakingToken {
     }
 
     pub(crate) fn stake_and_deposit(
-        &self,
+        &mut self,
         amount: NearToken,
         args: StakeMessage,
         deposit_token: DepositToken,
     ) -> Promise {
+        // Accrue any pending validator rewards into the backing NEAR so the
+        // exchange rate used for minting reflects the latest on-chain state.
+        self.sync_rewards_internal();
+
         let stake_amount = amount
             .checked_sub(args.storage_deposit.unwrap_or_default())
             .unwrap_or_else(|| {
                 env::panic_str("Storage deposit cannot be greater than the staked amount")
             });
 
-        // TODO: Recalculate the amount_staked_tokens regarding the locked balance
-        let staked_tokens = stake_amount;
+        let staked_tokens = self.near_to_lst(stake_amount);
+        require!(
+            !staked_tokens.is_zero() || stake_amount.is_zero(),
+            "Stake amount too small to mint any LST"
+        );
 
         let new_total_staked_amount = self
             .total_staked_amount

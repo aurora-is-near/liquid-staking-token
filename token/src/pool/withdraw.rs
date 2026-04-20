@@ -26,9 +26,11 @@ impl LiquidStakingToken {
             "The cooldown hasn't passed yet"
         );
 
+        let gross = NearToken::from_yoctonear(*amount);
+
         match args.withdraw_tokens {
-            WithdrawTokens::Native => self.withdraw_native(args.receiver_id, *amount, msg_hash),
-            WithdrawTokens::Wnear { .. } => self.withdraw_wnear(*amount, args, msg_hash),
+            WithdrawTokens::Native => self.withdraw_native(args.receiver_id, gross, msg_hash),
+            WithdrawTokens::Wnear { .. } => self.withdraw_wnear(gross, args, msg_hash),
         }
     }
 
@@ -36,6 +38,7 @@ impl LiquidStakingToken {
     pub fn on_withdraw_wnear(
         &mut self,
         msg_hash: CryptoHash,
+        gross: NearToken,
         amount: NearToken,
         is_call: bool,
     ) -> PromiseOrValue<U128> {
@@ -59,21 +62,39 @@ impl LiquidStakingToken {
 
                     if refund.is_zero() {
                         self.unstake_queue.remove(&msg_hash);
+                        self.total_pending_unstake =
+                            self.total_pending_unstake.saturating_sub(gross);
                     } else {
                         let (amount_to_withdraw, _) = self.unstake_queue.get_mut(&msg_hash)
                             .unwrap_or_else(|| env::panic_str("There is no withdrawal in the unstake queue for the given message hash"));
-
                         *amount_to_withdraw = refund.as_yoctonear();
+
+                        let consumed_from_queue = gross.checked_sub(refund).unwrap_or_else(|| {
+                            env::panic_str("Refund exceeds the gross withdrawal amount")
+                        });
+                        self.total_pending_unstake = self
+                            .total_pending_unstake
+                            .saturating_sub(consumed_from_queue);
                     }
 
                     refund
                 } else {
                     self.unstake_queue.remove(&msg_hash);
+                    self.total_pending_unstake =
+                        self.total_pending_unstake.saturating_sub(gross);
                     NearToken::ZERO
                 }
             }
             Err(e) => {
                 near_sdk::log!("Error while withdraw transfer: {e}");
+                // Full failure: wNEAR transfer never took effect. Restore the
+                // originally-deducted fee so the user can retry withdrawal for
+                // the full gross amount.
+                let fee = gross.saturating_sub(amount);
+                if !fee.is_zero() {
+                    self.withdrawal_fees_collected =
+                        self.withdrawal_fees_collected.saturating_sub(fee);
+                }
                 amount
             }
         };
@@ -86,14 +107,24 @@ impl LiquidStakingToken {
     fn withdraw_native(
         &mut self,
         receiver_id: AccountId,
-        amount: u128,
+        gross: NearToken,
         msg_hash: CryptoHash,
     ) -> Promise {
         self.unstake_queue.remove(&msg_hash);
-        Promise::new(receiver_id).transfer(NearToken::from_yoctonear(amount))
+        self.total_pending_unstake = self.total_pending_unstake.saturating_sub(gross);
+
+        let (net, fee) = self.split_withdrawal_fee(gross);
+        self.withdrawal_fees_collected = self.withdrawal_fees_collected.saturating_add(fee);
+
+        Promise::new(receiver_id).transfer(net)
     }
 
-    fn withdraw_wnear(&self, amount: u128, args: UnstakeMessage, msg_hash: CryptoHash) -> Promise {
+    fn withdraw_wnear(
+        &mut self,
+        gross: NearToken,
+        args: UnstakeMessage,
+        msg_hash: CryptoHash,
+    ) -> Promise {
         let WithdrawTokens::Wnear {
             storage_deposit,
             msg,
@@ -109,9 +140,14 @@ impl LiquidStakingToken {
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
-        let amount_to_withdraw = NearToken::from_yoctonear(amount)
+        let amount_after_storage = gross
             .checked_sub(storage_deposit.unwrap_or_default())
             .unwrap_or_else(|| env::panic_str("Storage deposit exceeds the withdrawal amount"));
+
+        // Apply the withdrawal fee to the user-destined portion (not the
+        // storage deposit, which is forwarded to wNEAR for registration).
+        let (amount_to_withdraw, fee) = self.split_withdrawal_fee(amount_after_storage);
+        self.withdrawal_fees_collected = self.withdrawal_fees_collected.saturating_add(fee);
 
         let mut promise = ext_wnear::ext(self.wnear_id.clone())
             .with_static_gas(NEAR_DEPOSIT_GAS)
@@ -159,7 +195,7 @@ impl LiquidStakingToken {
         promise.then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
-                .on_withdraw_wnear(msg_hash, amount_to_withdraw, is_call),
+                .on_withdraw_wnear(msg_hash, gross, amount_to_withdraw, is_call),
         )
     }
 }

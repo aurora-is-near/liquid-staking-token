@@ -56,8 +56,26 @@ pub struct LiquidStakingToken {
     owner_id: AccountId,
     wnear_id: AccountId,
     validator_public_key: PublicKey,
+    /// Total NEAR backing the outstanding LST supply. Grows with staking
+    /// rewards (reward-bearing model), so `total_staked_amount / ft_total_supply`
+    /// is the current LST ↔ NEAR exchange rate.
     total_staked_amount: NearToken,
+    /// Sum of NEAR amounts sitting in `unstake_queue`. Tracked explicitly so we
+    /// can derive rewards from the account's locked balance without iterating
+    /// the queue.
+    total_pending_unstake: NearToken,
+    /// Withdrawal fee in basis points (1 bp = 0.01%). Applied to the NEAR
+    /// amount released on `withdraw`.
+    withdrawal_fee_bps: u16,
+    /// NEAR accumulated from withdrawal fees, claimable by `Role::Admin`.
+    withdrawal_fees_collected: NearToken,
 }
+
+/// Maximum allowed withdrawal fee (10%). Hard-coded cap so the admin can't
+/// strand user funds behind a runaway fee.
+pub const MAX_WITHDRAWAL_FEE_BPS: u16 = 1_000;
+/// Denominator for basis-point math.
+pub const BPS_DENOMINATOR: u16 = 10_000;
 
 #[near]
 impl LiquidStakingToken {
@@ -70,9 +88,16 @@ impl LiquidStakingToken {
         validator_public_key: PublicKey,
         metadata: FungibleTokenMetadata,
         init_lock: Option<NearToken>, // The parameter mostly is used for tests since single node couldn't have 0 locked balances.
+        withdrawal_fee_bps: Option<u16>,
     ) -> Self {
         require!(!env::state_exists(), "Already initialized");
         metadata.assert_valid();
+
+        let withdrawal_fee_bps = withdrawal_fee_bps.unwrap_or(0);
+        require!(
+            withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS,
+            "withdrawal_fee_bps exceeds MAX_WITHDRAWAL_FEE_BPS"
+        );
 
         let mut token = FungibleToken::new(StorageKey::FungibleToken);
         token.internal_register_account(&env::current_account_id());
@@ -85,6 +110,9 @@ impl LiquidStakingToken {
             wnear_id,
             validator_public_key,
             total_staked_amount: init_lock.unwrap_or(NearToken::ZERO),
+            total_pending_unstake: NearToken::ZERO,
+            withdrawal_fee_bps,
+            withdrawal_fees_collected: NearToken::ZERO,
         };
 
         contract.grant_roles(&owner_id);

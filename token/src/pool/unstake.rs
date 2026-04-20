@@ -60,7 +60,8 @@ impl LiquidStakingToken {
     pub fn on_unstake(
         &mut self,
         sender_id: AccountId,
-        amount: U128,
+        lst_amount: U128,
+        near_amount: NearToken,
         msg_hash: CryptoHash,
     ) -> PromiseOrValue<U128> {
         let _ = sender_id;
@@ -71,14 +72,20 @@ impl LiquidStakingToken {
                 let (unstake_amount, unstake_epoch) =
                     self.unstake_queue.entry(msg_hash).or_insert((0, epoch_id));
 
-                *unstake_amount = unstake_amount.saturating_add(amount.0);
+                *unstake_amount = unstake_amount.saturating_add(near_amount.as_yoctonear());
                 *unstake_epoch = epoch_id;
+                self.total_pending_unstake = self
+                    .total_pending_unstake
+                    .checked_add(near_amount)
+                    .unwrap_or_else(|| {
+                        env::panic_str("Overflow while updating total pending unstake")
+                    });
 
                 PromiseOrValue::Value(0.into())
             }
             Err(e) => {
                 near_sdk::log!("Error while unstaking: {e}");
-                PromiseOrValue::Value(amount)
+                PromiseOrValue::Value(lst_amount)
             }
         }
     }
@@ -86,7 +93,7 @@ impl LiquidStakingToken {
 
 impl LiquidStakingToken {
     pub(crate) fn handle_unstaking(
-        &self,
+        &mut self,
         sender_id: AccountId,
         amount: U128,
         args: UnstakeMessage,
@@ -95,8 +102,15 @@ impl LiquidStakingToken {
             .hash()
             .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
 
-        let unstake_amount = NearToken::from_yoctonear(amount.0);
+        // Accrue rewards so the LST → NEAR conversion uses the current exchange rate.
+        self.sync_rewards_internal();
 
+        let lst_amount = NearToken::from_yoctonear(amount.0);
+        let unstake_amount = self.lst_to_near(lst_amount);
+        require!(
+            !unstake_amount.is_zero(),
+            "LST amount too small to unstake any NEAR"
+        );
         require!(
             unstake_amount <= self.total_staked_amount,
             "Attempt to unstake more than staked"
@@ -118,14 +132,14 @@ impl LiquidStakingToken {
         .modify_total_staked_amount(
             &env::current_account_id(),
             new_total_staked_amount,
-            unstake_amount,
+            lst_amount,
             false,
         )
         .then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
                 .with_static_gas(ON_UNSTAKE_GAS)
-                .on_unstake(sender_id, amount, msg_hash),
+                .on_unstake(sender_id, amount, unstake_amount, msg_hash),
         )
     }
 }
