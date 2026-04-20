@@ -4,7 +4,7 @@ use near_sdk::json_types::U128;
 use near_sdk::{AccountId, CryptoHash, NearToken, Promise, PromiseOrValue, env, near, require};
 
 use crate::pool::unstake::{UnstakeMessage, WithdrawTokens};
-use crate::pool::{STORAGE_DEPOSIT_GAS, calculate_min_gas};
+use crate::pool::{MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, calculate_min_gas};
 use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
@@ -43,9 +43,9 @@ impl LiquidStakingToken {
             env::promise_results_count() == 1,
             "Invalid promise results count"
         );
-        let max_len = if is_call { 44 } else { 0 };
+        let max_len = if is_call { MAX_RESULT_LENGTH } else { 0 };
 
-        match env::promise_result_checked(0, max_len) {
+        let refund = match env::promise_result_checked(0, max_len) {
             Ok(bytes) => {
                 if is_call {
                     let consumed = near_sdk::serde_json::from_slice::<NearToken>(&bytes)
@@ -53,22 +53,32 @@ impl LiquidStakingToken {
                             env::panic_str("Error while parsing withdrawal result");
                         });
 
-                    if consumed < amount {
-                        // TODO: Handle this case.
-                        near_sdk::log!("Withdrawal result is less than the amount");
+                    let refund = amount.checked_sub(consumed).unwrap_or_else(|| {
+                        env::panic_str("Consumed amount exceeds the withdrawal amount")
+                    });
+
+                    if refund.is_zero() {
+                        self.unstake_queue.remove(&msg_hash);
+                    } else {
+                        let (amount_to_withdraw, _) = self.unstake_queue.get_mut(&msg_hash)
+                            .unwrap_or_else(|| env::panic_str("There is no withdrawal in the unstake queue for the given message hash"));
+
+                        *amount_to_withdraw = refund.as_yoctonear();
                     }
+
+                    refund
+                } else {
+                    self.unstake_queue.remove(&msg_hash);
+                    NearToken::ZERO
                 }
-
-                near_sdk::log!("Withdraw successful");
-                self.unstake_queue.remove(&msg_hash);
-
-                PromiseOrValue::Value(0.into())
             }
             Err(e) => {
                 near_sdk::log!("Error while withdraw transfer: {e}");
-                PromiseOrValue::Value(amount.as_yoctonear().into())
+                amount
             }
-        }
+        };
+
+        PromiseOrValue::Value(refund.as_yoctonear().into())
     }
 }
 
@@ -94,6 +104,11 @@ impl LiquidStakingToken {
             env::panic_str("Invalid withdraw tokens type");
         };
 
+        require!(
+            args.receiver_id != env::current_account_id() || storage_deposit.is_none(),
+            "There couldn't be a storage_deposit for the current account withdrawal"
+        );
+
         let amount_to_withdraw = NearToken::from_yoctonear(amount)
             .checked_sub(storage_deposit.unwrap_or_default())
             .unwrap_or_else(|| env::panic_str("Storage deposit exceeds the withdrawal amount"));
@@ -103,7 +118,9 @@ impl LiquidStakingToken {
             .with_attached_deposit(amount_to_withdraw)
             .near_deposit();
 
-        let is_call = if args.receiver_id != env::current_account_id() {
+        let is_call = if args.receiver_id == env::current_account_id() {
+            false
+        } else {
             if let Some(storage_deposit) = storage_deposit {
                 promise = ext_storage_management::ext_on(promise)
                     .with_static_gas(STORAGE_DEPOSIT_GAS)
@@ -137,8 +154,6 @@ impl LiquidStakingToken {
             }
 
             is_call
-        } else {
-            false
         };
 
         promise.then(
