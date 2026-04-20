@@ -1,12 +1,15 @@
-use crate::env::ft::FT_STORAGE_DEPOSIT;
-use crate::env::pool::StakingPool;
-use crate::env::{Env, INIT_LOCK, ft::FungibleToken, mt::MultiToken, native::Native};
-use crate::tests::{
-    STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
-};
 use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
 use testresult::TestResult;
+
+use crate::env::ft::FT_STORAGE_DEPOSIT;
+use crate::env::pool::StakingPool;
+use crate::env::{
+    Env, INIT_LOCK, INITIAL_BALANCE, ft::FungibleToken, mt::MultiToken, native::Native,
+};
+use crate::tests::{
+    ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
+};
 
 #[tokio::test]
 async fn test_stake_with_native_near_and_get_on_intents() -> TestResult {
@@ -339,6 +342,56 @@ async fn test_stake_with_storage_deposit_exceeding_amount_fails() -> TestResult 
     // No tokens minted, locked balance unchanged.
     assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let bob = env.bob();
+    let refund_message = unstake_message(alice.id(), WithdrawTokens::Native);
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message_with_refund(alice.id(), None, Some(bob.id()), Some(&refund_message)),
+        )
+        .await?;
+
+    // No tokens minted, locked balance unchanged.
+    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INITIAL_BALANCE
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(ONE_YOCTO)
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &refund_message).await?;
+
+    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INITIAL_BALANCE.saturating_sub(ONE_YOCTO)
+    );
+
+    assert_eq!(env.lst.ft_balance_of(bob.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        bob.near_balance().await?.total,
+        INITIAL_BALANCE.saturating_sub(ONE_YOCTO)
+    );
 
     Ok(())
 }

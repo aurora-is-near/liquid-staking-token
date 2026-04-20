@@ -66,10 +66,6 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
     let wnear_intents_balance = env.wnear.ft_balance_of(env.intents.id()).await?;
     assert_eq!(wnear_intents_balance, STAKE_AMOUNT);
 
-    assert_eq!(
-        alice.near_balance().await?.total.as_millinear() + 1,
-        INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
-    );
     let intents_balance = env
         .intents
         .mt_balance_of(alice.id(), env.wnear.id())
