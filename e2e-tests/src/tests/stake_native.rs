@@ -42,7 +42,7 @@ async fn test_stake_with_native_near_and_get_on_intents() -> TestResult {
 }
 
 #[tokio::test]
-async fn test_stake_with_native_near_and_attempt_to_sent_on_intents_with_bad_account() -> TestResult
+async fn test_stake_with_native_near_and_attempt_to_send_on_intents_with_bad_account() -> TestResult
 {
     let env = Env::builder().build().await?;
     let alice = env.alice();
