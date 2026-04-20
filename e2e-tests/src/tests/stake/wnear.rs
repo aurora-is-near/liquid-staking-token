@@ -1,12 +1,15 @@
-use near_sdk::AccountId;
-use testresult::TestResult;
-
 use crate::env::ft::{FT_STORAGE_DEPOSIT, FungibleToken};
 use crate::env::mt::MultiToken;
 use crate::env::native::Native;
+use crate::env::pool::StakingPool;
 use crate::env::wnear::WNear;
 use crate::env::{Env, INIT_LOCK};
-use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message};
+use crate::tests::{
+    ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
+};
+use liquid_staking_token::pool::WithdrawTokens;
+use near_sdk::AccountId;
+use testresult::TestResult;
 
 #[tokio::test]
 async fn test_stake_with_wnear_and_get_on_intents() -> TestResult {
@@ -19,7 +22,7 @@ async fn test_stake_with_wnear_and_get_on_intents() -> TestResult {
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(env.defuse.id(), None, Some(alice.id()));
+    let message = stake_message(env.intents.id(), None, Some(alice.id()));
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
@@ -27,10 +30,10 @@ async fn test_stake_with_wnear_and_get_on_intents() -> TestResult {
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
     let alice_native_balance_after = alice.near_balance().await?;
@@ -64,12 +67,12 @@ async fn test_stake_with_wnear_and_get_on_nep141() -> TestResult {
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, STAKE_AMOUNT);
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
 
     let alice_native_balance_after = alice.near_balance().await?;
@@ -96,7 +99,7 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_bob() -> TestResult 
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(env.defuse.id(), None, Some(bob.id()));
+    let message = stake_message(env.intents.id(), None, Some(bob.id()));
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
@@ -104,12 +107,12 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_bob() -> TestResult 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
-    let intents_lst_balance = env.defuse.mt_balance_of(bob.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(bob.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
     let alice_native_balance_after = alice.near_balance().await?;
@@ -145,16 +148,16 @@ async fn test_stake_with_wnear_and_get_on_nep141_to_bob() -> TestResult {
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, ZERO_AMOUNT);
     let bob_lst_balance = env.lst.ft_balance_of(bob.id()).await?;
     assert_eq!(bob_lst_balance, STAKE_AMOUNT);
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
-    let intents_lst_balance = env.defuse.mt_balance_of(bob.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(bob.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
 
     let alice_native_balance_after = alice.near_balance().await?;
@@ -196,7 +199,7 @@ async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> Tes
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, ZERO_AMOUNT);
@@ -229,7 +232,7 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_unregistered() -> Te
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(env.defuse.id(), None, Some(alice.id()));
+    let message = stake_message(env.intents.id(), None, Some(alice.id()));
 
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
@@ -238,10 +241,10 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_unregistered() -> Te
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, ZERO_AMOUNT);
@@ -279,11 +282,69 @@ async fn test_stake_with_wnear_and_get_on_intents_with_wrong_message() -> TestRe
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK);
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.defuse.id()).await?;
+    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
     assert_eq!(intents_lst_balance, ZERO_AMOUNT);
 
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_with_wnear_refund()
+-> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let alice_native_balance_before = alice.near_balance().await?;
+    let refund_message = unstake_message(
+        alice.id(),
+        WithdrawTokens::Wnear {
+            storage_deposit: None,
+            msg: None,
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message_with_refund(
+                env.intents.id(),
+                None,
+                Some("a2933a$$%$1!@!#@!@"),
+                Some(&refund_message),
+            ), // Triggers a panic in `ft_on_transfer` on intents.
+        )
+        .await?;
+
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.intents.mt_balance_of(alice.id(), env.lst.id()).await?,
+        ZERO_AMOUNT
+    ); // No tokens on intents minted
+    assert_eq!(
+        alice_native_balance_before.total,
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT) // Alice's balance was decreased by STAKE_AMOUNT
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &refund_message).await?;
+
+    let wnear_alice_balance = env.wnear.ft_balance_of(alice.id()).await?;
+    assert_eq!(wnear_alice_balance, STAKE_AMOUNT);
 
     Ok(())
 }

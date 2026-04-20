@@ -8,12 +8,12 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::OnceCell;
 
-use crate::env::defuse::Defuse;
 use crate::env::ft::FungibleToken;
+use crate::env::intents::Intents;
 use crate::env::types::{Account, Contract};
 
-pub mod defuse;
 pub mod ft;
+pub mod intents;
 pub mod mt;
 pub mod native;
 pub mod pool;
@@ -23,6 +23,8 @@ pub mod wnear;
 const WNEAR: &str = "wnear.sandbox";
 const INTENTS: &str = "intents.sandbox";
 const LST: &str = "lst.sandbox";
+const ALICE: &str = "alice.sandbox";
+const BOB: &str = "bob.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
@@ -48,7 +50,7 @@ pub struct Env {
     sandbox: Sandbox,
     config: NetworkConfig,
     pub wnear: Contract,
-    pub defuse: Contract,
+    pub intents: Contract,
     pub lst: Contract,
     users: (Account, Account),
 }
@@ -59,21 +61,21 @@ impl Env {
         let sandbox = Sandbox::start_sandbox_with_config(config).await?;
         let config = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
 
-        let (wnear, defuse, lst) = Box::pin(create_contracts(&config)).await?;
+        let (wnear, intents, lst) = Box::pin(create_contracts(&config)).await?;
         let users = create_users(&config)?;
         let public_key = signer().get_public_key().await?;
 
         tokio::try_join!(
-            defuse.add_public_key(users.0.id(), public_key),
-            defuse.add_public_key(users.1.id(), public_key),
+            intents.add_public_key(users.0.id(), public_key),
+            intents.add_public_key(users.1.id(), public_key),
         )?;
 
         tokio::try_join!(
-            wnear.ft_storage_deposit(defuse.id()),
+            wnear.ft_storage_deposit(intents.id()),
             wnear.ft_storage_deposit(lst.id()),
         )?;
 
-        lst.ft_storage_deposit(defuse.id()).await?;
+        lst.ft_storage_deposit(intents.id()).await?;
 
         if !builder.without_storage_deposit {
             tokio::try_join!(
@@ -88,7 +90,7 @@ impl Env {
             sandbox,
             config,
             wnear,
-            defuse,
+            intents,
             lst,
             users,
         })
@@ -178,16 +180,8 @@ pub fn validator_signer() -> Arc<Signer> {
 
 fn create_users(config: &NetworkConfig) -> anyhow::Result<(Account, Account)> {
     Ok((
-        Account::new(
-            near_api::Account("alice.near".parse()?),
-            config.clone(),
-            signer(),
-        ),
-        Account::new(
-            near_api::Account("bob.near".parse()?),
-            config.clone(),
-            signer(),
-        ),
+        Account::new(near_api::Account(ALICE.parse()?), config.clone(), signer()),
+        Account::new(near_api::Account(BOB.parse()?), config.clone(), signer()),
     ))
 }
 
@@ -248,7 +242,7 @@ async fn create_intents(config: &NetworkConfig) -> anyhow::Result<Contract> {
     create_contract(
         config,
         INTENTS,
-        defuse_wasm().await?,
+        intents_wasm().await?,
         serde_json::json!({
             "config": {
                 "wnear_id": WNEAR,
@@ -299,8 +293,8 @@ async fn wnear_wasm() -> anyhow::Result<Vec<u8>> {
     read_wasm("../res/wnear.wasm").await
 }
 
-async fn defuse_wasm() -> anyhow::Result<Vec<u8>> {
-    read_wasm("../res/defuse.wasm").await
+async fn intents_wasm() -> anyhow::Result<Vec<u8>> {
+    read_wasm("../res/intents.wasm").await
 }
 
 async fn lst_wasm() -> anyhow::Result<Vec<u8>> {
@@ -367,12 +361,12 @@ async fn sandbox_config(reward_rate: Option<Vec<u32>>) -> SandboxConfig {
                 ..Default::default()
             },
             GenesisAccount {
-                account_id: "alice.near".parse().unwrap(),
+                account_id: ALICE.parse().unwrap(),
                 balance: INITIAL_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
-                account_id: "bob.near".parse().unwrap(),
+                account_id: BOB.parse().unwrap(),
                 balance: INITIAL_BALANCE,
                 ..Default::default()
             },

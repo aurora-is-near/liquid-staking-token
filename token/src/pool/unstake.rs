@@ -77,7 +77,7 @@ impl LiquidStakingToken {
                 PromiseOrValue::Value(0.into())
             }
             Err(e) => {
-                near_sdk::log!("Error while untaking: {e}");
+                near_sdk::log!("Error while unstaking: {e}");
                 PromiseOrValue::Value(amount)
             }
         }
@@ -89,10 +89,8 @@ impl LiquidStakingToken {
         &self,
         sender_id: AccountId,
         amount: U128,
-        msg: String,
-    ) -> PromiseOrValue<U128> {
-        let args: UnstakeMessage = near_sdk::serde_json::from_str(&msg)
-            .unwrap_or_else(|_| env::panic_str("Invalid msg format"));
+        args: UnstakeMessage,
+    ) -> Promise {
         let msg_hash = args
             .hash()
             .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
@@ -129,6 +127,5 @@ impl LiquidStakingToken {
                 .with_static_gas(ON_UNSTAKE_GAS)
                 .on_unstake(sender_id, amount, msg_hash),
         )
-        .into()
     }
 }
