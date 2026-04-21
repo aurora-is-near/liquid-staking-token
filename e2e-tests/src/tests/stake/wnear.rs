@@ -303,7 +303,7 @@ async fn test_stake_with_wnear_and_to_send_on_intents_with_bad_account_with_wnea
 
     let refund_message = unstake_message(
         alice.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: None,
             memo: None,
@@ -362,7 +362,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     let bob = env.bob();
     let refund_message = unstake_message(
         alice.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: None,
             memo: None,

@@ -33,6 +33,7 @@ pub struct StakeMessage {
     pub refund_message: Option<UnstakeMessage>,
 }
 
+#[derive(Debug, Clone, Copy)]
 #[near(serializers = [json])]
 pub enum DepositToken {
     Native,
@@ -157,7 +158,7 @@ impl LiquidStakingToken {
         self.handle_unstaking(
             args.receiver_id,
             refund_near.as_yoctonear().into(),
-            unstake_msg,
+            &unstake_msg,
         )
         .into()
     }

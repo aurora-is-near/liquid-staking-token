@@ -23,7 +23,7 @@ impl FungibleTokenReceiver for LiquidStakingToken {
             let unstake_message = serde_json::from_str(&msg)
                 .unwrap_or_else(|_| env::panic_str("Invalid format of the UnstakeMessage"));
 
-            self.handle_unstaking(sender_id, amount, unstake_message)
+            self.handle_unstaking(sender_id, amount, &unstake_message)
                 .into()
         } else {
             env::panic_str("Invalid token account ID");

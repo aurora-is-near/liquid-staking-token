@@ -89,7 +89,7 @@ impl LiquidStakingToken {
         &self,
         sender_id: AccountId,
         amount: U128,
-        args: UnstakeMessage,
+        args: &UnstakeMessage,
     ) -> Promise {
         let msg_hash = args
             .hash()

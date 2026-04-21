@@ -32,7 +32,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
 
     let unstake_message = unstake_message(
         env.intents.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,
@@ -101,7 +101,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
 
     let unstake_message = unstake_message(
         alice.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: Some(FT_STORAGE_DEPOSIT),
             msg: None,
             memo: None,
@@ -176,7 +176,7 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
 
     let unstake_message = unstake_message(
         env.intents.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,
@@ -236,7 +236,7 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
 
     let unstake_message = unstake_message(
         env.intents.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,
@@ -297,7 +297,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_itself() -> TestR
 
     let unstake_message = unstake_message(
         env.lst.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: None,
             memo: None,
@@ -359,7 +359,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_alice() -> TestRe
 
     let unstake_message = unstake_message(
         alice.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: None,
             memo: None,
@@ -424,7 +424,7 @@ async fn test_stake_native_near_by_alice_and_unstake_wnear_to_bad_account() -> T
 
     let unstake_message = unstake_message(
         env.intents.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some("bad%$#account".to_string()),
             memo: None,
