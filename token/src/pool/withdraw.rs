@@ -33,7 +33,7 @@ impl LiquidStakingToken {
     }
 
     #[private]
-    pub fn on_withdraw_transfer(
+    pub fn on_withdraw_wnear(
         &mut self,
         msg_hash: CryptoHash,
         amount: NearToken,
@@ -48,11 +48,10 @@ impl LiquidStakingToken {
         let refund = match env::promise_result_checked(0, max_len) {
             Ok(bytes) => {
                 if is_call {
-                    let consumed = near_sdk::serde_json::from_slice::<U128>(&bytes)
-                        .map(|value| NearToken::from_yoctonear(value.0))
-                        .unwrap_or_else(|_| {
-                            env::panic_str("Error while parsing withdrawal result");
-                        });
+                    let consumed = near_sdk::serde_json::from_slice::<U128>(&bytes).map_or_else(
+                        |_| env::panic_str("Error while parsing withdrawal result"),
+                        |value| NearToken::from_yoctonear(value.0),
+                    );
 
                     let refund = amount.checked_sub(consumed).unwrap_or_else(|| {
                         env::panic_str("Consumed amount exceeds the withdrawal amount")
@@ -160,7 +159,7 @@ impl LiquidStakingToken {
         promise.then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
-                .on_withdraw_transfer(msg_hash, amount_to_withdraw, is_call),
+                .on_withdraw_wnear(msg_hash, amount_to_withdraw, is_call),
         )
     }
 }

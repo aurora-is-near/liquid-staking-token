@@ -12,7 +12,7 @@ use near_sdk::serde::Serialize;
 use crate::env::signer;
 use crate::env::types::{Account, Contract};
 
-pub trait Defuse {
+pub trait Intents {
     async fn execute_intents(
         &self,
         sender_id: &AccountId,
@@ -20,12 +20,12 @@ pub trait Defuse {
     ) -> anyhow::Result<ExecutionSuccess>;
     async fn add_public_key(
         &self,
-        defuse_contract_id: &AccountId,
+        intents_contract_id: &AccountId,
         public_key: PublicKey,
     ) -> anyhow::Result<()>;
 }
 
-impl Defuse for Contract {
+impl Intents for Contract {
     async fn execute_intents(
         &self,
         sender_id: &AccountId,
@@ -70,11 +70,11 @@ impl Defuse for Contract {
     }
 }
 
-pub trait DefuseSigner: Signer {
+pub trait IntentsSigner: Signer {
     #[must_use]
     async fn sign_defuse_message<T>(
         &self,
-        defuse_contract: &AccountId,
+        intents_contract: &AccountId,
         nonce: Nonce,
         deadline: Deadline,
         message: T,
@@ -84,14 +84,14 @@ pub trait DefuseSigner: Signer {
 
     async fn sign_withdraw_intent(
         &self,
-        defuse_contract: &AccountId,
+        intents_contract: &AccountId,
         token: &AccountId,
         receiver_id: &AccountId,
         amount: NearToken,
         msg: Option<impl ToString>,
     ) -> MultiPayload {
         self.sign_defuse_message(
-            defuse_contract,
+            intents_contract,
             rand::random(),
             Deadline::MAX,
             DefuseIntents {
@@ -113,10 +113,10 @@ pub trait DefuseSigner: Signer {
     }
 }
 
-impl DefuseSigner for Account {
+impl IntentsSigner for Account {
     async fn sign_defuse_message<T>(
         &self,
-        defuse_contract: &AccountId,
+        intents_contract: &AccountId,
         nonce: Nonce,
         deadline: Deadline,
         message: T,
@@ -133,7 +133,7 @@ impl DefuseSigner for Account {
                 })
                 .expect("Failed to serialize Nep413DefuseMessage message"),
             )
-            .with_recipient(defuse_contract)
+            .with_recipient(intents_contract)
             .with_nonce(nonce),
         )
         .await

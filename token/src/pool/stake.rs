@@ -1,12 +1,11 @@
+use near_contract_standards::fungible_token::FungibleTokenResolver;
 use near_contract_standards::fungible_token::receiver::ext_ft_receiver;
 use near_contract_standards::storage_management::ext_storage_management;
 use near_sdk::json_types::U128;
-use near_sdk::{
-    AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require, serde_json,
-};
+use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require};
 
 use crate::pool::{
-    MAX_RESULT_LENGTH, MODIFY_STAKED_AMOUNT_GAS, STORAGE_DEPOSIT_GAS, calculate_min_gas,
+    MODIFY_STAKED_AMOUNT_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
 };
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
@@ -26,11 +25,15 @@ pub struct StakeMessage {
     /// The amount of storage deposit to be attached to the account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_deposit: Option<NearToken>,
-    /// The maximum amount of gas that can be used for the.
+    /// The maximum amount of gas that can be used for the `ft_on_transfer` callback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_gas: Option<Gas>,
+    /// A message is used in case of an error or refund in the `ft_on_transfer` callback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refund_message: Option<UnstakeMessage>,
 }
 
+#[derive(Debug, Clone, Copy)]
 #[near(serializers = [json])]
 pub enum DepositToken {
     Native,
@@ -71,7 +74,7 @@ impl LiquidStakingToken {
     ) -> PromiseOrValue<U128> {
         match env::promise_result_checked(0, 0) {
             Ok(_) => {
-                if let Some(msg) = args.msg {
+                if let Some(msg) = &args.msg {
                     let min_gas = calculate_min_gas(args.min_gas, true);
 
                     ext_ft_receiver::ext(args.receiver_id.clone())
@@ -80,12 +83,12 @@ impl LiquidStakingToken {
                         .ft_on_transfer(
                             env::current_account_id(),
                             amount_staked_tokens.as_yoctonear().into(),
-                            msg,
+                            msg.to_string(),
                         )
                         .then(
                             Self::ext(env::current_account_id())
                                 .with_unused_gas_weight(1)
-                                .on_ft_on_transfer(),
+                                .on_ft_on_transfer(amount_staked_tokens, args),
                         )
                         .into()
                 } else {
@@ -121,26 +124,43 @@ impl LiquidStakingToken {
     }
 
     #[private]
-    pub fn on_ft_on_transfer(&mut self) -> PromiseOrValue<U128> {
-        // Looks like we can just log a fail in the `ft_on_transfer` since in this receipt
-        // tokens are already staked, and we can't do anything with it. So tokens will be stuck
-        // on the contract account id in case of failure or partial refund.
-        match env::promise_result_checked(0, MAX_RESULT_LENGTH) {
-            Ok(bytes) => {
-                if let Ok(refund) = serde_json::from_slice::<U128>(&bytes) {
-                    if refund.0 > 0 {
-                        near_sdk::log!("Refund in the ft_on_transfer: {}", refund.0);
-                    }
-                } else {
-                    near_sdk::log!("Invalid format of the result in the ft_on_transfer");
-                }
-            }
-            Err(_) => {
-                near_sdk::log!("Error occurred in the ft_on_transfer");
-            }
+    pub fn on_ft_on_transfer(
+        &mut self,
+        amount_shared_tokens: NearToken,
+        args: StakeMessage,
+    ) -> PromiseOrValue<U128> {
+        // The refund message wasn't attached, so consider the result of the `ft_on_transfer`
+        // as successful without refunding.
+        if args.refund_message.is_none() {
+            return PromiseOrValue::Value(0.into());
         }
 
-        PromiseOrValue::Value(0.into())
+        let consumed_shared_tokens = self.token.ft_resolve_transfer(
+            env::current_account_id(),
+            args.receiver_id.clone(),
+            amount_shared_tokens.as_yoctonear().into(),
+        );
+
+        let refund_shared_tokens = amount_shared_tokens
+            .saturating_sub(NearToken::from_yoctonear(consumed_shared_tokens.0));
+
+        if refund_shared_tokens.is_zero() {
+            return PromiseOrValue::Value(0.into());
+        }
+
+        // TODO: Recalculate the refund of shared tokens to near regarding the locked balance.
+        let refund_near = refund_shared_tokens;
+
+        let unstake_msg = args
+            .refund_message
+            .unwrap_or_else(|| env::panic_str("The refund message is invalid or doesn't exist"));
+
+        self.handle_unstaking(
+            args.receiver_id,
+            refund_near.as_yoctonear().into(),
+            &unstake_msg,
+        )
+        .into()
     }
 }
 
@@ -150,10 +170,8 @@ impl LiquidStakingToken {
         &self,
         _sender_id: AccountId,
         amount: U128,
-        msg: String,
+        args: StakeMessage,
     ) -> PromiseOrValue<U128> {
-        let args = serde_json::from_str::<StakeMessage>(&msg)
-            .unwrap_or_else(|_| env::panic_str("Invalid format of the message"));
         ext_wnear::ext(self.wnear_id.clone())
             .with_attached_deposit(ONE_YOCTO)
             .with_static_gas(NEAR_WITHDRAW_GAS)

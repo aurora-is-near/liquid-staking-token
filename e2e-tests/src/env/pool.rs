@@ -15,7 +15,7 @@ pub trait StakingPool {
     async fn withdraw(
         &self,
         signer: &Account,
-        args: &serde_json::Value,
+        args: impl Serialize,
     ) -> anyhow::Result<ExecutionSuccess>;
 }
 
@@ -66,7 +66,7 @@ impl StakingPool for Contract {
     async fn withdraw(
         &self,
         signer: &Account,
-        args: &serde_json::Value,
+        args: impl Serialize,
     ) -> anyhow::Result<ExecutionSuccess> {
         let result = self
             .inner

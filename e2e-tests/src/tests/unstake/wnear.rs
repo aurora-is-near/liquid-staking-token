@@ -1,8 +1,8 @@
 use liquid_staking_token::pool::WithdrawTokens;
 use testresult::TestResult;
 
-use crate::env::defuse::{Defuse, DefuseSigner};
 use crate::env::ft::{FT_STORAGE_DEPOSIT, FungibleToken};
+use crate::env::intents::{Intents, IntentsSigner};
 use crate::env::mt::MultiToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
@@ -20,19 +20,19 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.defuse.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), None, Some(alice.id())),
         )
         .await?;
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
     let unstake_message = unstake_message(
-        env.defuse.id(),
-        WithdrawTokens::Wnear {
+        env.intents.id(),
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,
@@ -41,7 +41,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
     );
     let withdraw_intent = alice
         .sign_withdraw_intent(
-            env.defuse.id(),
+            env.intents.id(),
             env.lst.id(),
             env.lst.id(),
             STAKE_AMOUNT,
@@ -49,7 +49,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
         )
         .await;
 
-    env.defuse
+    env.intents
         .execute_intents(alice.id(), vec![withdraw_intent])
         .await?;
 
@@ -63,14 +63,13 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
 
     env.lst.withdraw(alice, &unstake_message).await?;
 
-    let wnear_defuse_balance = env.wnear.ft_balance_of(env.defuse.id()).await?;
-    assert_eq!(wnear_defuse_balance, STAKE_AMOUNT);
+    let wnear_intents_balance = env.wnear.ft_balance_of(env.intents.id()).await?;
+    assert_eq!(wnear_intents_balance, STAKE_AMOUNT);
 
-    assert_eq!(
-        alice.near_balance().await?.total.as_millinear() + 1,
-        INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
-    );
-    let intents_balance = env.defuse.mt_balance_of(alice.id(), env.wnear.id()).await?;
+    let intents_balance = env
+        .intents
+        .mt_balance_of(alice.id(), env.wnear.id())
+        .await?;
     assert_eq!(intents_balance, STAKE_AMOUNT);
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
@@ -90,19 +89,19 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.defuse.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), None, Some(alice.id())),
         )
         .await?;
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
     let unstake_message = unstake_message(
         alice.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: Some(FT_STORAGE_DEPOSIT),
             msg: None,
             memo: None,
@@ -111,7 +110,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
     );
     let withdraw_intent = alice
         .sign_withdraw_intent(
-            env.defuse.id(),
+            env.intents.id(),
             env.lst.id(),
             env.lst.id(),
             STAKE_AMOUNT,
@@ -119,7 +118,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
         )
         .await;
 
-    env.defuse
+    env.intents
         .execute_intents(alice.id(), vec![withdraw_intent])
         .await?;
 
@@ -133,10 +132,10 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
 
     env.lst.withdraw(alice, &unstake_message).await?;
 
-    let wnear_defuse_balance = env.wnear.ft_balance_of(alice.id()).await?;
+    let wnear_intents_balance = env.wnear.ft_balance_of(alice.id()).await?;
 
     assert_eq!(
-        wnear_defuse_balance,
+        wnear_intents_balance,
         STAKE_AMOUNT.saturating_sub(FT_STORAGE_DEPOSIT)
     );
 
@@ -176,8 +175,8 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
     assert_eq!(lst_balance, STAKE_AMOUNT);
 
     let unstake_message = unstake_message(
-        env.defuse.id(),
-        WithdrawTokens::Wnear {
+        env.intents.id(),
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,
@@ -198,14 +197,17 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
 
     env.lst.withdraw(alice, &unstake_message).await?;
 
-    let wnear_defuse_balance = env.wnear.ft_balance_of(env.defuse.id()).await?;
-    assert_eq!(wnear_defuse_balance, STAKE_AMOUNT);
+    let wnear_intents_balance = env.wnear.ft_balance_of(env.intents.id()).await?;
+    assert_eq!(wnear_intents_balance, STAKE_AMOUNT);
 
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
         INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
     );
-    let intents_balance = env.defuse.mt_balance_of(alice.id(), env.wnear.id()).await?;
+    let intents_balance = env
+        .intents
+        .mt_balance_of(alice.id(), env.wnear.id())
+        .await?;
     assert_eq!(intents_balance, STAKE_AMOUNT);
 
     Ok(())
@@ -233,8 +235,8 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     let half_stake_amount = STAKE_AMOUNT.saturating_div(2);
 
     let unstake_message = unstake_message(
-        env.defuse.id(),
-        WithdrawTokens::Wnear {
+        env.intents.id(),
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,
@@ -258,14 +260,17 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
 
     env.lst.withdraw(alice, &unstake_message).await?;
 
-    let wnear_defuse_balance = env.wnear.ft_balance_of(env.defuse.id()).await?;
-    assert_eq!(wnear_defuse_balance, STAKE_AMOUNT);
+    let wnear_intents_balance = env.wnear.ft_balance_of(env.intents.id()).await?;
+    assert_eq!(wnear_intents_balance, STAKE_AMOUNT);
 
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
         INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
     );
-    let intents_balance = env.defuse.mt_balance_of(alice.id(), env.wnear.id()).await?;
+    let intents_balance = env
+        .intents
+        .mt_balance_of(alice.id(), env.wnear.id())
+        .await?;
     assert_eq!(intents_balance, STAKE_AMOUNT);
 
     Ok(())
@@ -292,7 +297,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_itself() -> TestR
 
     let unstake_message = unstake_message(
         env.lst.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: None,
             memo: None,
@@ -354,7 +359,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_alice() -> TestRe
 
     let unstake_message = unstake_message(
         alice.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: None,
             memo: None,
@@ -418,8 +423,8 @@ async fn test_stake_native_near_by_alice_and_unstake_wnear_to_bad_account() -> T
     assert_eq!(lst_balance, STAKE_AMOUNT);
 
     let unstake_message = unstake_message(
-        env.defuse.id(),
-        WithdrawTokens::Wnear {
+        env.intents.id(),
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some("bad%$#account".to_string()),
             memo: None,

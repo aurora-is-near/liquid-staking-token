@@ -1,6 +1,6 @@
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::json_types::U128;
-use near_sdk::{AccountId, PromiseOrValue, env, near};
+use near_sdk::{AccountId, PromiseOrValue, env, near, serde_json};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
@@ -15,9 +15,16 @@ impl FungibleTokenReceiver for LiquidStakingToken {
         let token_id = env::predecessor_account_id();
 
         if token_id == self.wnear_id {
-            self.handle_staking(sender_id, amount, msg)
+            let stake_message = serde_json::from_str(&msg)
+                .unwrap_or_else(|_| env::panic_str("Invalid format of the StakeMessage"));
+
+            self.handle_staking(sender_id, amount, stake_message)
         } else if token_id == env::current_account_id() {
-            self.handle_unstaking(sender_id, amount, msg)
+            let unstake_message = serde_json::from_str(&msg)
+                .unwrap_or_else(|_| env::panic_str("Invalid format of the UnstakeMessage"));
+
+            self.handle_unstaking(sender_id, amount, &unstake_message)
+                .into()
         } else {
             env::panic_str("Invalid token account ID");
         }

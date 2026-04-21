@@ -2,8 +2,8 @@ use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
 use testresult::TestResult;
 
-use crate::env::defuse::{Defuse, DefuseSigner};
 use crate::env::ft::FungibleToken;
+use crate::env::intents::{Intents, IntentsSigner};
 use crate::env::mt::MultiToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
@@ -23,7 +23,7 @@ async fn test_withdraw_before_cooldown_fails() -> TestResult {
         )
         .await?;
 
-    let unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_msg = unstake_message(alice.id(), &WithdrawTokens::Native);
     env.lst
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_msg)
         .await?;
@@ -57,7 +57,7 @@ async fn test_withdraw_nonexistent_stake_fails() -> TestResult {
     let alice = env.alice();
 
     // Alice never staked or unstaked, so the queue has no matching entry.
-    let unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_msg = unstake_message(alice.id(), &WithdrawTokens::Native);
     let result = env.lst.withdraw(alice, &unstake_msg).await;
     assert!(
         result.is_err(),
@@ -80,20 +80,20 @@ async fn test_unstake_native_by_withdrawing_lst_from_intents() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.defuse.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), None, Some(alice.id())),
         )
         .await?;
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.defuse.mt_balance_of(alice.id(), env.lst.id()).await?;
+    let intents_lst_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(intents_lst_balance, STAKE_AMOUNT);
 
-    let unstake_message = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
     let withdraw_intent = alice
         .sign_withdraw_intent(
-            env.defuse.id(),
+            env.intents.id(),
             env.lst.id(),
             env.lst.id(),
             STAKE_AMOUNT,
@@ -101,7 +101,7 @@ async fn test_unstake_native_by_withdrawing_lst_from_intents() -> TestResult {
         )
         .await;
 
-    env.defuse
+    env.intents
         .execute_intents(alice.id(), vec![withdraw_intent])
         .await?;
 
@@ -142,7 +142,7 @@ async fn test_unstake_native_by_sending_lst_back() -> TestResult {
     let lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(lst_balance, STAKE_AMOUNT);
 
-    let unstake_message = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
     env.lst
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_message)
         .await?;
@@ -187,7 +187,7 @@ async fn test_partial_unstake_preserves_remaining_lst() -> TestResult {
     let partial = STAKE_AMOUNT.saturating_div(4); // unstake 25%
     let remaining = STAKE_AMOUNT.saturating_sub(partial);
 
-    let unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_msg = unstake_message(alice.id(), &WithdrawTokens::Native);
     env.lst
         .ft_transfer_call(alice, env.lst.id(), partial, &unstake_msg)
         .await?;
@@ -234,7 +234,7 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
 
     let half_stake_amount = STAKE_AMOUNT.saturating_div(2);
 
-    let unstake_message = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;
@@ -255,8 +255,8 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
 
     env.lst.withdraw(alice, &unstake_message).await?;
 
-    let wnear_defuse_balance = env.wnear.ft_balance_of(env.defuse.id()).await?;
-    assert_eq!(wnear_defuse_balance, ZERO_AMOUNT);
+    let wnear_intents_balance = env.wnear.ft_balance_of(env.intents.id()).await?;
+    assert_eq!(wnear_intents_balance, ZERO_AMOUNT);
 
     assert_eq!(
         alice
@@ -266,7 +266,10 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
             .saturating_add(NearToken::from_yoctonear(3)), // add_public_key + ft_transfer_call + ft_transfer_call
         INITIAL_BALANCE
     );
-    let intents_balance = env.defuse.mt_balance_of(alice.id(), env.wnear.id()).await?;
+    let intents_balance = env
+        .intents
+        .mt_balance_of(alice.id(), env.wnear.id())
+        .await?;
     assert_eq!(intents_balance, ZERO_AMOUNT);
 
     Ok(())
@@ -291,7 +294,7 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_itself() -> Test
     let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
     assert_eq!(lst_balance, STAKE_AMOUNT);
 
-    let unstake_message = unstake_message(env.lst.id(), WithdrawTokens::Native);
+    let unstake_message = unstake_message(env.lst.id(), &WithdrawTokens::Native);
 
     env.lst
         .ft_on_transfer(
@@ -341,7 +344,7 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_alice() -> TestR
     let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
     assert_eq!(lst_balance, STAKE_AMOUNT);
 
-    let unstake_message = unstake_message(alice.id(), WithdrawTokens::Native);
+    let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
 
     env.lst
         .ft_on_transfer(

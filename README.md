@@ -123,7 +123,8 @@ near contract call-function as-transaction <CONTRACT_ID> stake \
       "storage_deposit": "1250000000000000000000",
       "msg":  null,
       "memo": null,
-      "min_gas": null
+      "min_gas": null,
+      "refund_message": null
     }
   }' \
   prepaid-gas '100 Tgas' \
@@ -171,7 +172,8 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
   "storage_deposit":  "1250000000000000000000", // optional
   "msg":              "...",                // optional
   "memo":             "my stake",          // optional
-  "min_gas":          35000000000000       // optional
+  "min_gas":          35000000000000,      // optional
+  "refund_message":   { ... }              // optional — see below
 }
 ```
 
@@ -179,9 +181,10 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 |-------------------|--------------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `receiver_id`     | `AccountId`                    | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                         |
 | `storage_deposit` | `NearToken` (yoctoNEAR string) | No       | If set, this amount is deducted from the staked NEAR and used to call `storage_deposit` on the LST contract for `receiver_id`, registering the account before the token transfer. Required when `receiver_id` is not yet registered on the LST contract. |
-| `msg`             | `String`                       | No       | If present the LST tokens are delivered via `ft_transfer_call` (passing this string as `msg`). If absent, a plain `ft_transfer` is used. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                |
-| `memo`            | `String`                       | No       | Memo forwarded to `ft_transfer_call`. Ignored when `msg` is absent.                                                                                                                                                                                      |
-| `min_gas`         | `Gas` (u64)                    | No       | Minimum gas (in gas units) attached to the LST transfer step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                |
+| `msg`             | `String`                       | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract). |
+| `memo`            | `String`                       | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                               |
+| `min_gas`         | `Gas` (u64)                    | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                            |
+| `refund_message`  | `UnstakeMessage`               | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery. |
 
 **Token amount minted.** Currently 1 yoctoNEAR staked = 1 yoctoLST minted (1:1). Future versions will adjust this ratio
 based on accrued validator rewards.
@@ -291,7 +294,7 @@ The contract:
 3. Transfers the NEAR (or wNEAR) to `receiver_id`.
 4. Removes the entry from the queue.
 
-If called too early, the transaction panics with `"It's too early to withdraw"`.
+If called too early, the transaction panics with `"The cooldown hasn't passed yet"`.
 
 ---
 
@@ -313,6 +316,32 @@ If called too early, the transaction panics with `"It's too early to withdraw"`.
 4. alice calls withdraw({ receiver_id: "alice.near", withdraw_tokens: "native" })
    → 10 NEAR returned to alice
 ```
+
+### Native NEAR → intents contract → partial refund recovery
+
+When staking into a DeFi protocol via `msg`, provide `refund_message` to handle the case where the protocol rejects or partially consumes the LST tokens.
+
+```text
+1. alice calls stake({
+     receiver_id: "intents.near",
+     msg: "...",
+     refund_message: { receiver_id: "alice.near", withdraw_tokens: "native" }
+   })
+   attached: 10 NEAR
+   → LST tokens minted to intents.near
+   → ft_on_transfer called on intents.near
+   → intents.near panics or returns a refund
+
+2. contract detects refund, burns the refunded LST tokens, and queues an unstake
+   for alice using the provided refund_message
+
+3. wait 4 epochs
+
+4. alice calls withdraw({ receiver_id: "alice.near", withdraw_tokens: "native" })
+   → 10 NEAR returned to alice
+```
+
+---
 
 ### wNEAR → LST → wNEAR round-trip
 

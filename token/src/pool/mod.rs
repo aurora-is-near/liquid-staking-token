@@ -40,17 +40,17 @@ impl LiquidStakingToken {
         &mut self,
         account_id: &AccountId,
         total_staked_amount: NearToken,
-        staked_tokens: NearToken,
+        shared_tokens: NearToken,
         is_stake: bool,
     ) {
         self.total_staked_amount = total_staked_amount;
 
         if is_stake {
             self.token
-                .internal_deposit(account_id, staked_tokens.as_yoctonear());
+                .internal_deposit(account_id, shared_tokens.as_yoctonear());
         } else {
             self.token
-                .internal_withdraw(account_id, staked_tokens.as_yoctonear());
+                .internal_withdraw(account_id, shared_tokens.as_yoctonear());
         }
     }
 }
