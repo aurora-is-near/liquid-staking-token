@@ -293,11 +293,14 @@ async fn test_stake_with_wnear_and_get_on_intents_with_wrong_message() -> TestRe
 }
 
 #[tokio::test]
-async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_with_wnear_refund()
+async fn test_stake_with_wnear_and_to_send_on_intents_with_bad_account_with_wnear_refund()
 -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
     let alice_native_balance_before = alice.near_balance().await?;
+
+    env.wnear.near_deposit(alice, STAKE_AMOUNT).await?;
+
     let refund_message = unstake_message(
         alice.id(),
         WithdrawTokens::Wnear {
@@ -308,16 +311,17 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
         },
     );
 
-    env.lst
-        .stake(
+    env.wnear
+        .ft_transfer_call(
             alice,
+            env.lst.id(),
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.intents.id(),
                 None,
                 Some("a2933a$$%$1!@!#@!@"),
                 Some(&refund_message),
-            ), // Triggers a panic in `ft_on_transfer` on intents.
+            ),
         )
         .await?;
 
@@ -338,6 +342,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
             .await?
             .total
             .saturating_add(STAKE_AMOUNT) // Alice's balance was decreased by STAKE_AMOUNT
+            .saturating_add(ONE_YOCTO) // ft_transfer_call deposits 1 yoctoNEAR to the contract
     );
 
     env.wait_unstake_cooldown().await?;
