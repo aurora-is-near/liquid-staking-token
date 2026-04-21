@@ -19,7 +19,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
     let alice_native_balance_before = alice.near_balance().await?;
     let refund_message = unstake_message(
         env.intents.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(bob.id().to_string()),
             memo: None,
@@ -79,7 +79,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     let bob = env.bob();
     let refund_message = unstake_message(
         env.intents.id(),
-        WithdrawTokens::Wnear {
+        &WithdrawTokens::Wnear {
             storage_deposit: None,
             msg: Some(alice.id().to_string()),
             memo: None,

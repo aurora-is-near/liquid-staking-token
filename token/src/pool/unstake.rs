@@ -85,7 +85,7 @@ impl LiquidStakingToken {
             }
             Err(e) => {
                 near_sdk::log!("Error while unstaking: {e}");
-                PromiseOrValue::Value(lst_amount)
+                PromiseOrValue::Value(amount)
             }
         }
     }
@@ -96,7 +96,7 @@ impl LiquidStakingToken {
         &mut self,
         sender_id: AccountId,
         amount: U128,
-        args: UnstakeMessage,
+        args: &UnstakeMessage,
     ) -> Promise {
         let msg_hash = args
             .hash()

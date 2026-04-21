@@ -11,40 +11,40 @@ const ZERO_AMOUNT: NearToken = NearToken::ZERO;
 const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 const STAKE_AMOUNT: NearToken = NearToken::from_near(1_000);
 
-fn stake_message<T: AsRef<str>>(
-    receiver_id: impl AsRef<str>,
+fn stake_message(
+    receiver_id: impl Serialize,
     storage_deposit: Option<NearToken>,
-    msg: Option<T>,
+    msg: Option<impl Serialize>,
 ) -> serde_json::Value {
     serde_json::json!({
-        "receiver_id": receiver_id.as_ref(),
+        "receiver_id": receiver_id,
         "storage_deposit": storage_deposit,
-        "msg": msg.as_ref().map(AsRef::as_ref),
+        "msg": msg,
         "min_gas": null,
     })
 }
 
-fn stake_message_with_refund<T: AsRef<str>>(
-    receiver_id: impl AsRef<str>,
+fn stake_message_with_refund(
+    receiver_id: impl Serialize,
     storage_deposit: Option<NearToken>,
-    msg: Option<T>,
+    msg: Option<impl Serialize>,
     refund_message: Option<impl Serialize>,
 ) -> serde_json::Value {
     serde_json::json!({
-        "receiver_id": receiver_id.as_ref(),
+        "receiver_id": receiver_id,
         "storage_deposit": storage_deposit,
-        "msg": msg.as_ref().map(AsRef::as_ref),
+        "msg": msg,
         "min_gas": null,
         "refund_message": refund_message,
     })
 }
 
 fn unstake_message(
-    receiver_id: impl AsRef<str>,
-    withdraw_tokens: WithdrawTokens,
+    receiver_id: impl Serialize,
+    withdraw_tokens: &WithdrawTokens,
 ) -> serde_json::Value {
     serde_json::json!({
-        "receiver_id": receiver_id.as_ref(),
+        "receiver_id": receiver_id,
         "withdraw_tokens": withdraw_tokens,
     })
 }

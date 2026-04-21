@@ -90,7 +90,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
     let env = Env::builder().build().await?;
     let alice = env.alice();
     let alice_native_balance_before = alice.near_balance().await?;
-    let refund_message = unstake_message(alice.id(), WithdrawTokens::Native);
+    let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
 
     env.lst
         .stake(
@@ -351,7 +351,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     let env = Env::builder().build().await?;
     let alice = env.alice();
     let bob = env.bob();
-    let refund_message = unstake_message(alice.id(), WithdrawTokens::Native);
+    let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
 
     env.lst
         .stake(

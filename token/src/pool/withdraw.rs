@@ -195,7 +195,7 @@ impl LiquidStakingToken {
         promise.then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
-                .on_withdraw_wnear(msg_hash, gross, amount_to_withdraw, is_call),
+                .on_withdraw_wnear(msg_hash, amount_to_withdraw, is_call),
         )
     }
 }

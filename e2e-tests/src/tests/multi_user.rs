@@ -47,8 +47,8 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
 
     // Each user unstakes using a message keyed to their own receiver_id, so the
     // two entries in the unstake queue are distinct.
-    let alice_unstake_msg = unstake_message(alice.id(), WithdrawTokens::Native);
-    let bob_unstake_msg = unstake_message(bob.id(), WithdrawTokens::Native);
+    let alice_unstake_msg = unstake_message(alice.id(), &WithdrawTokens::Native);
+    let bob_unstake_msg = unstake_message(bob.id(), &WithdrawTokens::Native);
 
     env.lst
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &alice_unstake_msg)
