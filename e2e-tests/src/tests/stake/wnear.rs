@@ -378,7 +378,6 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         )
         .await?;
 
-    // No tokens minted, locked balance unchanged.
     assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
     assert_eq!(
         env.lst.near_balance().await?.locked,
