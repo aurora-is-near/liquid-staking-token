@@ -195,7 +195,7 @@ async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> Tes
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK);
 
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
@@ -325,12 +325,14 @@ async fn test_stake_with_wnear_and_to_send_on_intents_with_bad_account_with_wnea
         )
         .await?;
 
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+
     assert_eq!(
         env.lst.near_balance().await?.locked,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
-    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+
     assert_eq!(
         env.intents.mt_balance_of(alice.id(), env.lst.id()).await?,
         ZERO_AMOUNT
@@ -378,7 +380,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         )
         .await?;
 
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(
         env.lst.near_balance().await?.locked,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)

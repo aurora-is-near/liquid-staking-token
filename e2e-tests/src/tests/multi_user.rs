@@ -6,7 +6,7 @@ use crate::env::ft::FungibleToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
-use crate::tests::{STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
+use crate::tests::{STAKE_AMOUNT, stake_message, unstake_message};
 
 /// Alice and Bob stake independently, unstake with different messages (different
 /// receiver_ids produce different queue keys), and each withdraws their own funds
@@ -42,7 +42,9 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
     assert_eq!(env.lst.ft_balance_of(bob.id()).await?, bob_stake);
     assert_eq!(
         env.lst.ft_total_supply().await?,
-        STAKE_AMOUNT.saturating_add(bob_stake)
+        INIT_LOCK
+            .saturating_add(STAKE_AMOUNT)
+            .saturating_add(bob_stake)
     );
 
     // Each user unstakes using a message keyed to their own receiver_id, so the
@@ -57,7 +59,7 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
         .ft_transfer_call(bob, env.lst.id(), bob_stake, &bob_unstake_msg)
         .await?;
 
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
 

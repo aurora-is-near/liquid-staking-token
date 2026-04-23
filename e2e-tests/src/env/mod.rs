@@ -26,6 +26,8 @@ const LST: &str = "lst.sandbox";
 const ALICE: &str = "alice.sandbox";
 const BOB: &str = "bob.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
+
+pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_006_020_000);
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
 pub const BLOCKS_PER_EPOCH: u64 = 50;
@@ -57,7 +59,7 @@ pub struct Env {
 
 impl Env {
     async fn new(builder: EnvBuilder) -> anyhow::Result<Self> {
-        let config = sandbox_config(builder.with_stake_rewards).await;
+        let config = sandbox_config(builder.stake_rewards).await;
         let sandbox = Sandbox::start_sandbox_with_config(config).await?;
         let config = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
 
@@ -120,7 +122,18 @@ impl Env {
             .await
     }
 
-    #[allow(dead_code)]
+    pub async fn wait_for_epochs(&self, num_epochs: u64) -> anyhow::Result<()> {
+        let mut current_epoch = self.epoch_height(None).await?;
+        let target_epoch = current_epoch + num_epochs;
+
+        while current_epoch < target_epoch {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            current_epoch = self.epoch_height(None).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn epoch_height(&self, block_height: Option<u64>) -> anyhow::Result<u64> {
         tokio_retry::Retry::spawn(retry_strategy(), || async {
             near_api::Staking::epoch_validators_info()
@@ -150,7 +163,8 @@ impl Env {
 #[derive(Default)]
 pub struct EnvBuilder {
     without_storage_deposit: bool,
-    with_stake_rewards: Option<Vec<u32>>,
+    stake_rewards: Option<[u32; 2]>,
+    epoch_length: Option<u64>,
 }
 
 impl EnvBuilder {
@@ -159,9 +173,13 @@ impl EnvBuilder {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn with_stake_rewards(mut self, reward_ratio: Vec<u32>) -> Self {
-        self.with_stake_rewards = Some(reward_ratio);
+    pub fn with_stake_rewards(mut self, reward_ratio: [u32; 2]) -> Self {
+        self.stake_rewards = Some(reward_ratio);
+        self
+    }
+
+    pub fn with_epoch_length(mut self, epoch_length: u64) -> Self {
+        self.epoch_length = Some(epoch_length);
         self
     }
 
@@ -319,7 +337,7 @@ async fn read_wasm<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Vec<u8>
     tokio::fs::read(path).await.map_err(Into::into)
 }
 
-async fn sandbox_config(reward_rate: Option<Vec<u32>>) -> SandboxConfig {
+async fn sandbox_config(reward_rate: Option<[u32; 2]>) -> SandboxConfig {
     let validator_key_file = std::fs::canonicalize("../res/validator_key.json").unwrap();
     let validator_public_key = validator_signer()
         .get_public_key()
@@ -338,11 +356,12 @@ async fn sandbox_config(reward_rate: Option<Vec<u32>>) -> SandboxConfig {
             "epoch_length": BLOCKS_PER_EPOCH,
             "min_gas_price": "0",
             "max_gas_price": "0",
+            "num_block_producer_seats": BLOCKS_PER_EPOCH,
             "protocol_treasury_account": LST,
             "transaction_validity_period": BLOCKS_PER_EPOCH * 2,
-            "total_supply": NearToken::from_near(1_006_020_000),
-            "protocol_reward_rate": reward_rate.unwrap_or_else(|| vec![1, 1]), // vec![1, 10], // do not increase balance with rewards to simplify tests
-            "max_inflation_rate":vec![1, 1], // vec![1, 40],
+            "total_supply": TOTAL_SUPPLY,
+            "protocol_reward_rate": reward_rate.unwrap_or([1, 1]), // do not increase balance with rewards to simplify tests
+            // "max_inflation_rate": [1, 40], // default: [1, 40],
         })),
         validators: Some(vec![ValidatorAccount {
             account_id: LST.parse().unwrap(),

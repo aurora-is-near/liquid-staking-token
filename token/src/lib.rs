@@ -9,6 +9,8 @@ use near_sdk::{
     require,
 };
 
+use crate::pool::{PoolStatistics, UserDistribution};
+
 mod core;
 mod metadata;
 pub mod pool;
@@ -50,13 +52,20 @@ enum Role {
 )]
 #[near(contract_state)]
 pub struct LiquidStakingToken {
+    /// The underlying fungible token represented LST token.
     token: FungibleToken,
+    /// The metadata of the LST token.
     metadata: FungibleTokenMetadata,
-    unstake_queue: LookupMap<CryptoHash, (u128, u64)>,
+    /// The queue for unstake requests.
+    unstake_queue: LookupMap<CryptoHash, UserDistribution>,
+    /// The ID of the account that owns the contract.
     owner_id: AccountId,
+    /// The ID of the account that holds wNEAR.
     wnear_id: AccountId,
+    /// The public key of the validator.
     validator_public_key: PublicKey,
-    total_staked_amount: NearToken,
+    /// The pool statistics.
+    statistics: PoolStatistics,
 }
 
 #[near]
@@ -69,7 +78,7 @@ impl LiquidStakingToken {
         wnear_id: AccountId,
         validator_public_key: PublicKey,
         metadata: FungibleTokenMetadata,
-        init_lock: Option<NearToken>, // The parameter mostly is used for tests since single node couldn't have 0 locked balances.
+        init_lock: Option<NearToken>,
     ) -> Self {
         require!(!env::state_exists(), "Already initialized");
         metadata.assert_valid();
@@ -84,8 +93,13 @@ impl LiquidStakingToken {
             owner_id: owner_id.clone(),
             wnear_id,
             validator_public_key,
-            total_staked_amount: init_lock.unwrap_or(NearToken::ZERO),
+            statistics: init_lock
+                .map_or_else(PoolStatistics::default, PoolStatistics::with_init_lock),
         };
+
+        if let Some(init_lock) = init_lock {
+            contract.mint_shared_to_owner(&owner_id, init_lock);
+        }
 
         contract.grant_roles(&owner_id);
         contract
@@ -105,5 +119,16 @@ impl LiquidStakingToken {
 
         acl.grant_role_unchecked(Role::PauseManager, admin_account_id);
         acl.grant_role_unchecked(Role::UnpauseManager, admin_account_id);
+    }
+
+    fn mint_shared_to_owner(&mut self, owner_id: &AccountId, init_lock: NearToken) {
+        let lst = &mut self.token;
+
+        if owner_id != &env::current_account_id() {
+            lst.internal_register_account(owner_id);
+        }
+
+        lst.internal_deposit(owner_id, init_lock.as_yoctonear());
+        self.statistics.increase_delegators();
     }
 }

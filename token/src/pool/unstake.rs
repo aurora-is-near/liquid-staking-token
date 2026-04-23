@@ -59,50 +59,61 @@ impl LiquidStakingToken {
     #[private]
     pub fn on_unstake(
         &mut self,
-        sender_id: AccountId,
-        amount: U128,
+        lst_amount: NearToken,
+        near_amount: NearToken,
         msg_hash: CryptoHash,
     ) -> PromiseOrValue<U128> {
-        let _ = sender_id;
-        match env::promise_result_checked(0, 0) {
-            Ok(_) => {
-                near_sdk::log!("Unstake successful");
-                let epoch_id = env::epoch_height();
-                let (unstake_amount, unstake_epoch) =
-                    self.unstake_queue.entry(msg_hash).or_insert((0, epoch_id));
+        if env::promise_result_checked(0, 0).is_ok() {
+            near_sdk::log!("Unstake successful");
+            let epoch_id = env::epoch_height();
+            let user_distribution = self.unstake_queue.entry(msg_hash).or_default();
 
-                *unstake_amount = unstake_amount.saturating_add(amount.0);
-                *unstake_epoch = epoch_id;
+            user_distribution.withdrawal_amount = user_distribution
+                .withdrawal_amount
+                .saturating_add(near_amount);
+            user_distribution.unstake_epoch = epoch_id;
 
-                PromiseOrValue::Value(0.into())
-            }
-            Err(e) => {
-                near_sdk::log!("Error while unstaking: {e}");
-                PromiseOrValue::Value(amount)
-            }
+            self.statistics.total_pending_unstake = self
+                .statistics
+                .total_pending_unstake
+                .saturating_add(near_amount);
+
+            PromiseOrValue::Value(0.into())
+        } else {
+            let lst_yocto = lst_amount.as_yoctonear();
+            near_sdk::log!("Error while unstaking, refund: {lst_yocto} LST");
+
+            PromiseOrValue::Value(lst_yocto.into())
         }
     }
 }
 
 impl LiquidStakingToken {
     pub(crate) fn handle_unstaking(
-        &self,
-        sender_id: AccountId,
-        amount: U128,
+        &mut self,
+        lst_amount: NearToken,
         args: &UnstakeMessage,
     ) -> Promise {
+        require!(
+            lst_amount > NearToken::ZERO,
+            "Unstake amount must be more than 0"
+        );
+
+        self.sync_rewards_internal();
+
         let msg_hash = args
             .hash()
             .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
 
-        let unstake_amount = NearToken::from_yoctonear(amount.0);
+        let unstake_amount = self.lst_to_near(lst_amount);
 
         require!(
-            unstake_amount <= self.total_staked_amount,
+            unstake_amount <= self.statistics.total_staked_amount,
             "Attempt to unstake more than staked"
         );
 
         let new_total_staked_amount = self
+            .statistics
             .total_staked_amount
             .checked_sub(unstake_amount)
             .unwrap_or_else(|| {
@@ -118,14 +129,14 @@ impl LiquidStakingToken {
         .modify_total_staked_amount(
             &env::current_account_id(),
             new_total_staked_amount,
-            unstake_amount,
+            lst_amount,
             false,
         )
         .then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
                 .with_static_gas(ON_UNSTAKE_GAS)
-                .on_unstake(sender_id, amount, msg_hash),
+                .on_unstake(lst_amount, unstake_amount, msg_hash),
         )
     }
 }

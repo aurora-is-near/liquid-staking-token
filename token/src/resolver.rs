@@ -15,9 +15,17 @@ impl FungibleTokenResolver for LiquidStakingToken {
     ) -> U128 {
         let (used_amount, burned_amount) =
             self.token
-                .internal_ft_resolve_transfer(&sender_id, receiver_id, amount);
+                .internal_ft_resolve_transfer(&sender_id, receiver_id.clone(), amount);
         if burned_amount > 0 {
             near_sdk::log!("Account @{} burned {}", sender_id, burned_amount);
+        }
+
+        if self.is_zero_balance(&sender_id) {
+            self.statistics.decrease_delegators();
+        }
+
+        if self.is_zero_balance(&receiver_id) {
+            self.statistics.decrease_delegators();
         }
 
         used_amount.into()

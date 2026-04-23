@@ -13,7 +13,9 @@ defuse.workspace = true
 near-api.workspace = true
 near-sandbox.workspace = true
 near-sdk = { workspace = true, features = ["unit-testing"] }
+num-traits.workspace = true
 rand.workspace = true
+ruint.workspace = true
 testresult.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-retry.workspace = true

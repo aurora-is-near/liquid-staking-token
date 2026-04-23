@@ -45,7 +45,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(
         env.intents.mt_balance_of(alice.id(), env.lst.id()).await?,
         ZERO_AMOUNT
@@ -95,8 +95,9 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         )
         .await?;
 
-    // No tokens minted, locked balance unchanged.
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    // No tokens minted, total_supply unchanged.
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    // Locked balance increased by STAKE_AMOUNT for cooldown period only.
     assert_eq!(
         env.lst.near_balance().await?.locked,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)

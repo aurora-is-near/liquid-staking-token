@@ -65,7 +65,7 @@ async fn test_withdraw_nonexistent_stake_fails() -> TestResult {
     );
 
     // State unchanged.
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
 
     Ok(())
@@ -105,8 +105,7 @@ async fn test_unstake_native_by_withdrawing_lst_from_intents() -> TestResult {
         .execute_intents(alice.id(), vec![withdraw_intent])
         .await?;
 
-    let total_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_supply, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
 
@@ -147,8 +146,7 @@ async fn test_unstake_native_by_sending_lst_back() -> TestResult {
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_message)
         .await?;
 
-    let total_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_supply, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
 
@@ -194,7 +192,10 @@ async fn test_partial_unstake_preserves_remaining_lst() -> TestResult {
 
     // 75% of LST must remain with alice; total supply tracks it.
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, remaining);
-    assert_eq!(env.lst.ft_total_supply().await?, remaining);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(remaining)
+    );
 
     env.wait_unstake_cooldown().await?;
 
@@ -208,7 +209,10 @@ async fn test_partial_unstake_preserves_remaining_lst() -> TestResult {
 
     // After withdrawal the 75% of LST is untouched.
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, remaining);
-    assert_eq!(env.lst.ft_total_supply().await?, remaining);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(remaining)
+    );
 
     Ok(())
 }
@@ -245,8 +249,7 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
     let lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(lst_balance, ZERO_AMOUNT);
 
-    let total_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_supply, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
 
@@ -288,11 +291,11 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_itself() -> Test
         )
         .await?;
 
-    let lst_balance = env.lst.near_balance().await?;
-    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+    let locked_balance = env.lst.near_balance().await?.locked;
+    assert_eq!(locked_balance, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
     let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
-    assert_eq!(lst_balance, STAKE_AMOUNT);
+    assert_eq!(lst_balance, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
     let unstake_message = unstake_message(env.lst.id(), &WithdrawTokens::Native);
 
@@ -305,11 +308,8 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_itself() -> Test
         )
         .await?;
 
-    let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
-    assert_eq!(lst_balance, ZERO_AMOUNT);
-
-    let total_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_supply, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.lst.id()).await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
 
@@ -342,7 +342,7 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_alice() -> TestR
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
     let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
-    assert_eq!(lst_balance, STAKE_AMOUNT);
+    assert_eq!(lst_balance, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
     let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
 
@@ -355,11 +355,8 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_alice() -> TestR
         )
         .await?;
 
-    let lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
-    assert_eq!(lst_balance, ZERO_AMOUNT);
-
-    let total_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_supply, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.lst.id()).await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
 
