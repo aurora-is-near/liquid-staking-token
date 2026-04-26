@@ -1,6 +1,7 @@
 use near_contract_standards::fungible_token::FungibleTokenResolver;
 use near_contract_standards::fungible_token::receiver::ext_ft_receiver;
 use near_contract_standards::storage_management::ext_storage_management;
+use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require};
 
@@ -36,18 +37,33 @@ pub struct StakeMessage {
 #[derive(Debug, Clone, Copy)]
 #[near(serializers = [json])]
 pub enum DepositToken {
-    Native(NearToken),
-    Wnear(NearToken),
+    Native,
+    Wnear,
 }
 
 #[near]
 impl LiquidStakingToken {
     /// Allow staking tokens by depositing attached native NEAR to the contract to itself
     /// or to another optional account to the corresponding direction.
+    #[pause]
     #[payable]
     pub fn stake(&mut self, args: StakeMessage) -> Promise {
-        let stake_tokens = env::attached_deposit();
-        self.stake_and_deposit(args, DepositToken::Native(stake_tokens))
+        let stake_amount = env::attached_deposit();
+        let is_contract_staking = env::predecessor_account_id() == env::current_account_id();
+
+        // We don't need to subtract anything when calling from the contract itself.
+        self.sync_rewards_internal(Some(if is_contract_staking {
+            NearToken::ZERO
+        } else {
+            stake_amount
+        }));
+
+        self.stake_and_deposit(
+            args,
+            stake_amount,
+            DepositToken::Native,
+            is_contract_staking,
+        )
     }
 
     #[private]
@@ -57,23 +73,37 @@ impl LiquidStakingToken {
             "Failed to withdraw NEAR from wNEAR"
         );
 
-        self.stake_and_deposit(
-            args,
-            DepositToken::Wnear(NearToken::from_yoctonear(amount.0)),
-        )
+        let stake_amount = NearToken::from_yoctonear(amount.0);
+
+        self.sync_rewards_internal(Some(stake_amount));
+        self.stake_and_deposit(args, stake_amount, DepositToken::Wnear, false)
     }
 
     #[private]
     pub fn on_stake_and_deposit(
         &mut self,
-        deposit_tokens: DepositToken,
+        deposit_token: DepositToken,
+        stake_tokens: NearToken,
         lst_tokens: LstToken,
         args: StakeMessage,
+        is_contract_staking: bool,
     ) -> PromiseOrValue<U128> {
         match env::promise_result_checked(0, 0) {
             Ok(_) => {
+                if !is_contract_staking {
+                    self.statistics.increase_total_balance(
+                        stake_tokens
+                            .checked_add(args.storage_deposit.unwrap_or_default())
+                            .unwrap_or_else(|| {
+                                env::panic_str(
+                                    "Storage deposit cannot be greater than the staked amount",
+                                )
+                            }),
+                    );
+                }
+
                 // At this point we already staked deposited tokens, therefore, any refunds via
-                // unstake with cooldown period.
+                // unstake with cooldown period only.
                 if let Some(msg) = &args.msg {
                     let min_gas = calculate_min_gas(args.min_gas, true);
 
@@ -95,10 +125,9 @@ impl LiquidStakingToken {
                     PromiseOrValue::Value(U128(0))
                 }
             }
-            Err(_) => match deposit_tokens {
-                // The batch is failed, all changes are reverted. Full refund.
-                DepositToken::Native(_) => env::panic_str("Error while staking native NEAR"),
-                DepositToken::Wnear(stake_tokens) => ext_wnear::ext(self.wnear_id.clone())
+            Err(_) => match deposit_token {
+                DepositToken::Native => env::panic_str("Error while staking native NEAR"),
+                DepositToken::Wnear => ext_wnear::ext(self.wnear_id.clone())
                     .with_attached_deposit(stake_tokens)
                     .with_static_gas(NEAR_DEPOSIT_GAS)
                     .with_unused_gas_weight(1)
@@ -106,6 +135,7 @@ impl LiquidStakingToken {
                     .then(
                         Self::ext(env::current_account_id())
                             .with_unused_gas_weight(1)
+                            .with_static_gas(Gas::from_tgas(1))
                             .refund_wnear_deposit(stake_tokens),
                     )
                     .into(),
@@ -175,25 +205,22 @@ impl LiquidStakingToken {
     }
 
     pub(crate) fn stake_and_deposit(
-        &mut self,
+        &self,
         args: StakeMessage,
-        stake_tokens: DepositToken,
+        amount: NearToken,
+        deposit_token: DepositToken,
+        is_contract_staking: bool,
     ) -> Promise {
-        let stake_amount = match stake_tokens {
-            DepositToken::Native(native_tokens) => native_tokens,
-            DepositToken::Wnear(wnear_tokens) => wnear_tokens,
-        }
-        .checked_sub(args.storage_deposit.unwrap_or_default())
-        .unwrap_or_else(|| {
-            env::panic_str("Storage deposit cannot be greater than the staked amount")
-        });
+        let stake_amount = amount
+            .checked_sub(args.storage_deposit.unwrap_or_default())
+            .unwrap_or_else(|| {
+                env::panic_str("Storage deposit cannot be greater than the staked amount")
+            });
 
         require!(
             stake_amount > NearToken::ZERO,
             "The amount of NEAR tokens for staking must be more than 0"
         );
-
-        self.sync_rewards_internal();
 
         let lst_tokens = self.near_to_lst(stake_amount);
 
@@ -225,17 +252,18 @@ impl LiquidStakingToken {
         promise = Self::ext_on(promise)
             .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
             .with_unused_gas_weight(0)
-            .modify_total_staked_amount(
-                &args.receiver_id,
-                new_total_staked_amount,
-                lst_tokens,
-                true,
-            );
+            .modify_state_after_stake(&args.receiver_id, new_total_staked_amount, lst_tokens, true);
 
         promise.then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
-                .on_stake_and_deposit(stake_tokens, lst_tokens, args),
+                .on_stake_and_deposit(
+                    deposit_token,
+                    stake_amount,
+                    lst_tokens,
+                    args,
+                    is_contract_staking,
+                ),
         )
     }
 }

@@ -1,44 +1,28 @@
 use near_plugins::{AccessControllable, access_control_any};
-use near_sdk::near;
-use near_sdk::{AccountId, NearToken, Promise, env, require};
+use near_sdk::{Promise, PublicKey, assert_one_yocto, env, near, require};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, Role};
 
-const MAX_WITHDRAWAL_FEE_BPS: u128 = 2_000; // 20%
+const MAX_PROTOCOL_FEE_BPS: u128 = 2_000; // 20%
 
 #[near]
 impl LiquidStakingToken {
-    /// Updates the withdrawal fee. Capped at [`MAX_WITHDRAWAL_FEE_BPS`].
+    /// Updates the protocol fee. Capped at [`MAX_PROTOCOL_FEE_BPS`].
     #[access_control_any(roles(Role::Admin))]
-    pub fn set_withdrawal_fee_bps(&mut self, fee_bps: u16) {
+    pub fn set_protocol_fee_bps(&mut self, fee_bps: u16) {
         require!(
-            u128::from(fee_bps) <= MAX_WITHDRAWAL_FEE_BPS,
-            "withdrawal_fee_bps exceeds MAX_WITHDRAWAL_FEE_BPS"
+            u128::from(fee_bps) <= MAX_PROTOCOL_FEE_BPS,
+            "protocol fee exceeds MAX_PROTOCOL_FEE_BPS, which is 20%"
         );
-        self.statistics.withdrawal_fee_bps = fee_bps;
+
+        self.statistics.protocol_fee_bps = fee_bps;
     }
 
-    /// Transfers accumulated withdrawal fees to `receiver_id` as native NEAR.
-    /// If `amount` is `None`, the entire collected balance is claimed.
+    /// Adds a new full access key to the contract.
+    #[payable]
     #[access_control_any(roles(Role::Admin))]
-    pub fn claim_withdrawal_fees(
-        &mut self,
-        receiver_id: AccountId,
-        amount: Option<NearToken>,
-    ) -> Promise {
-        let amount = amount.unwrap_or(self.statistics.withdrawal_collected_fees);
-        require!(!amount.is_zero(), "Nothing to claim");
-        require!(
-            amount <= self.statistics.withdrawal_collected_fees,
-            "Requested amount exceeds collected fees"
-        );
-
-        self.statistics.withdrawal_collected_fees = self
-            .statistics
-            .withdrawal_collected_fees
-            .checked_sub(amount)
-            .unwrap_or_else(|| env::panic_str("Underflow while claiming withdrawal fees"));
-
-        Promise::new(receiver_id).transfer(amount)
+    pub fn add_full_access_key(&mut self, public_key: PublicKey) -> Promise {
+        assert_one_yocto();
+        Promise::new(env::current_account_id()).add_full_access_key(public_key)
     }
 }

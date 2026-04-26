@@ -1,4 +1,5 @@
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
+use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, NearToken, PromiseOrValue, env, near, serde_json};
 
@@ -6,6 +7,7 @@ use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 #[near]
 impl FungibleTokenReceiver for LiquidStakingToken {
+    #[pause]
     fn ft_on_transfer(
         &mut self,
         sender_id: AccountId,

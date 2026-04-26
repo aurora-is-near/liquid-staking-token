@@ -1,7 +1,8 @@
 use near_contract_standards::fungible_token::core::ext_ft_core;
 use near_contract_standards::storage_management::ext_storage_management;
+use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
-use near_sdk::{AccountId, CryptoHash, NearToken, Promise, env, near, require};
+use near_sdk::{AccountId, CryptoHash, Gas, NearToken, Promise, env, near, require};
 
 use crate::pool::unstake::{UnstakeMessage, WithdrawTokens};
 use crate::pool::{MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, calculate_min_gas};
@@ -9,6 +10,8 @@ use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
 const UNSTAKE_COOLDOWN_PERIOD: u64 = 4;
+const ON_WITHDRAW_WNEAR_GAS: Gas = Gas::from_tgas(5);
+const REMOVE_LOCK_GAS: Gas = Gas::from_tgas(1);
 
 #[derive(Debug, Default, Clone, Copy)]
 #[near(serializers = [borsh])]
@@ -24,6 +27,7 @@ pub struct UserDistribution {
 
 #[near]
 impl LiquidStakingToken {
+    #[pause]
     pub fn withdraw(&mut self, args: UnstakeMessage) -> Promise {
         let msg_hash = args
             .hash()
@@ -48,9 +52,8 @@ impl LiquidStakingToken {
     pub fn on_withdraw_wnear(
         &mut self,
         msg_hash: CryptoHash,
-        gross_amount: NearToken,
-        net_amount: NearToken,
-        fee: NearToken,
+        total_amount: NearToken,
+        withdrawal_amount: NearToken,
         is_call: bool,
     ) {
         require!(
@@ -66,62 +69,40 @@ impl LiquidStakingToken {
                     |value| NearToken::from_yoctonear(value.0),
                 )
             } else {
-                net_amount
+                withdrawal_amount
             };
 
-            if consumed >= net_amount {
+            let pending_decrement = if consumed >= withdrawal_amount {
                 self.unstake_queue.remove(&msg_hash);
-                self.statistics.total_pending_unstake = self
-                    .statistics
-                    .total_pending_unstake
-                    .saturating_sub(gross_amount);
+                total_amount
             } else {
-                // Partial delivery
-                let refund = net_amount.saturating_sub(consumed);
-
-                // Fee proportional to delivered fraction
-                let fee_to_keep = NearToken::from_yoctonear(crate::pool::mul_div_floor(
-                    fee.as_yoctonear(),
-                    consumed.as_yoctonear(),
-                    net_amount.as_yoctonear(),
-                ));
-                let fee_to_reverse = fee.saturating_sub(fee_to_keep);
-
-                self.statistics.withdrawal_collected_fees = self
-                    .statistics
-                    .withdrawal_collected_fees
-                    .checked_sub(fee_to_reverse)
-                    .unwrap_or_else(|| env::panic_str("Underflow reversing fees"));
-
-                // Queue stores what the user is still owed in gross NEAR:
-                // the undelivered wNEAR value + the reversed fee portion.
-                // On re-withdrawal, split_withdrawal_fee will re-apply the fee correctly.
-                let remaining = refund.saturating_add(fee_to_reverse);
-
+                // Partial delivery: keep the undelivered wnear as the user's residual claim.
+                let refund = withdrawal_amount.saturating_sub(consumed);
                 let user_distribution = self
                     .unstake_queue
                     .get_mut(&msg_hash)
                     .unwrap_or_else(|| env::panic_str("No withdrawal in unstake queue"));
 
-                user_distribution.withdrawal_amount = remaining;
-                // If the user did a storage_deposit, it was successful at this point, and he will
-                // not do it again in the next withdrawal.
+                user_distribution.withdrawal_amount = refund;
+                // Storage was already paid on this attempt; don't charge again.
                 user_distribution.storage_already_deposited = true;
 
-                // Pending unstake decreases by the portion that's fully resolved
-                self.statistics.total_pending_unstake = self
-                    .statistics
-                    .total_pending_unstake
-                    .saturating_sub(gross_amount.saturating_sub(remaining));
-            }
+                total_amount.saturating_sub(refund)
+            };
+
+            self.statistics
+                .decrease_pending_withdrawals(pending_decrement);
+            // The full queued amount left the contract's NEAR balance: delivered as wnear,
+            // held as undelivered wnear, or paid as storage to the wnear contract.
+            self.statistics.decrease_total_balance(total_amount);
         } else {
             near_sdk::log!("Error while withdrawing wNEAR");
-            self.statistics.withdrawal_collected_fees = self
-                .statistics
-                .withdrawal_collected_fees
-                .checked_sub(fee)
-                .unwrap_or_else(|| env::panic_str("Underflow reversing fees"));
         }
+    }
+
+    #[private]
+    pub fn remove_lock(&mut self, msg_hash: CryptoHash) {
+        self.withdrawal_locks.remove(&msg_hash);
     }
 }
 
@@ -133,24 +114,15 @@ impl LiquidStakingToken {
         msg_hash: CryptoHash,
     ) -> Promise {
         self.unstake_queue.remove(&msg_hash);
-        self.statistics.total_pending_unstake =
-            self.statistics.total_pending_unstake.saturating_sub(amount);
-
-        let (net, fee) = self.split_withdrawal_fee(amount);
-
-        self.statistics.withdrawal_collected_fees = self
-            .statistics
-            .withdrawal_collected_fees
-            .saturating_add(fee);
+        self.statistics.decrease_total_balance(amount);
+        self.statistics.decrease_pending_withdrawals(amount);
 
         near_sdk::log!(
-            "Withdraw to {receiver_id} gross: {}, net: {}, fee: {}",
+            "Withdraw to {receiver_id} amount: {}",
             amount.as_yoctonear(),
-            net.as_yoctonear(),
-            fee.as_yoctonear()
         );
 
-        Promise::new(receiver_id).transfer(net)
+        Promise::new(receiver_id).transfer(amount)
     }
 
     fn withdraw_wnear(
@@ -174,12 +146,19 @@ impl LiquidStakingToken {
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
+        require!(
+            !self.withdrawal_locks.contains(&msg_hash),
+            "The withdrawal for this hash is already in progress"
+        );
+
+        self.withdrawal_locks.insert(msg_hash);
+
         let is_distributed_before = self
             .unstake_queue
             .get(&msg_hash)
             .is_some_and(|entry| entry.storage_already_deposited);
 
-        let gross_amount = if is_distributed_before {
+        let amount_without_storage = if is_distributed_before {
             amount
         } else {
             amount
@@ -187,16 +166,9 @@ impl LiquidStakingToken {
                 .unwrap_or_else(|| env::panic_str("Storage deposit exceeds the withdrawal amount"))
         };
 
-        let (net_amount, fee) = self.split_withdrawal_fee(gross_amount);
-
-        self.statistics.withdrawal_collected_fees = self
-            .statistics
-            .withdrawal_collected_fees
-            .saturating_add(fee);
-
         let mut promise = ext_wnear::ext(self.wnear_id.clone())
             .with_static_gas(NEAR_DEPOSIT_GAS)
-            .with_attached_deposit(net_amount)
+            .with_attached_deposit(amount_without_storage)
             .near_deposit();
 
         let is_call = if args.receiver_id == env::current_account_id() {
@@ -221,7 +193,7 @@ impl LiquidStakingToken {
                     .with_unused_gas_weight(1)
                     .ft_transfer_call(
                         args.receiver_id,
-                        net_amount.as_yoctonear().into(),
+                        amount_without_storage.as_yoctonear().into(),
                         memo,
                         msg,
                     );
@@ -229,16 +201,27 @@ impl LiquidStakingToken {
                 promise = ext_ft_core::ext_on(promise)
                     .with_attached_deposit(ONE_YOCTO)
                     .with_static_gas(min_gas)
-                    .ft_transfer(args.receiver_id, net_amount.as_yoctonear().into(), memo);
+                    .ft_transfer(
+                        args.receiver_id,
+                        amount_without_storage.as_yoctonear().into(),
+                        memo,
+                    );
             }
 
             is_call
         };
 
-        promise.then(
-            Self::ext(env::current_account_id())
-                .with_unused_gas_weight(1)
-                .on_withdraw_wnear(msg_hash, amount, net_amount, fee, is_call),
-        )
+        promise
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .with_static_gas(ON_WITHDRAW_WNEAR_GAS)
+                    .on_withdraw_wnear(msg_hash, amount, amount_without_storage, is_call),
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(REMOVE_LOCK_GAS)
+                    .remove_lock(msg_hash),
+            )
     }
 }

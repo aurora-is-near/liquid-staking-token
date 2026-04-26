@@ -59,7 +59,7 @@ pub struct Env {
 
 impl Env {
     async fn new(builder: EnvBuilder) -> anyhow::Result<Self> {
-        let config = sandbox_config(builder.stake_rewards).await;
+        let config = sandbox_config(&builder).await;
         let sandbox = Sandbox::start_sandbox_with_config(config).await?;
         let config = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
 
@@ -75,9 +75,8 @@ impl Env {
         tokio::try_join!(
             wnear.ft_storage_deposit(intents.id()),
             wnear.ft_storage_deposit(lst.id()),
+            lst.ft_storage_deposit(intents.id()),
         )?;
-
-        lst.ft_storage_deposit(intents.id()).await?;
 
         if !builder.without_storage_deposit {
             tokio::try_join!(
@@ -165,6 +164,7 @@ pub struct EnvBuilder {
     without_storage_deposit: bool,
     stake_rewards: Option<[u32; 2]>,
     epoch_length: Option<u64>,
+    initial_balance: Option<NearToken>,
 }
 
 impl EnvBuilder {
@@ -180,6 +180,11 @@ impl EnvBuilder {
 
     pub fn with_epoch_length(mut self, epoch_length: u64) -> Self {
         self.epoch_length = Some(epoch_length);
+        self
+    }
+
+    pub fn with_initial_balance(mut self, initial_balance: NearToken) -> Self {
+        self.initial_balance = Some(initial_balance);
         self
     }
 
@@ -222,7 +227,7 @@ async fn create_lst(config: &NetworkConfig) -> anyhow::Result<Contract> {
         serde_json::json!({
             "owner_id": LST,
             "wnear_id": WNEAR,
-            "intents_id": INTENTS,
+            "treasury_id": LST,
             "validator_public_key": validator_public_key,
             "total_supply": NearToken::from_near(0),
             "metadata": {
@@ -337,7 +342,7 @@ async fn read_wasm<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Vec<u8>
     tokio::fs::read(path).await.map_err(Into::into)
 }
 
-async fn sandbox_config(reward_rate: Option<[u32; 2]>) -> SandboxConfig {
+async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
     let validator_key_file = std::fs::canonicalize("../res/validator_key.json").unwrap();
     let validator_public_key = validator_signer()
         .get_public_key()
@@ -347,6 +352,13 @@ async fn sandbox_config(reward_rate: Option<[u32; 2]>) -> SandboxConfig {
     let value: serde_json::Value =
         serde_json::from_reader(std::fs::File::open(&validator_key_file).unwrap()).unwrap();
     let validator_private_key = value["secret_key"].as_str().unwrap();
+    let total_supply = builder
+        .initial_balance
+        .map_or(TOTAL_SUPPLY, |init_balance| {
+            TOTAL_SUPPLY
+                .saturating_sub(INITIAL_BALANCE)
+                .saturating_add(init_balance)
+        });
 
     SandboxConfig {
         additional_config: Some(serde_json::json!({
@@ -359,8 +371,8 @@ async fn sandbox_config(reward_rate: Option<[u32; 2]>) -> SandboxConfig {
             "num_block_producer_seats": BLOCKS_PER_EPOCH,
             "protocol_treasury_account": LST,
             "transaction_validity_period": BLOCKS_PER_EPOCH * 2,
-            "total_supply": TOTAL_SUPPLY,
-            "protocol_reward_rate": reward_rate.unwrap_or([1, 1]), // do not increase balance with rewards to simplify tests
+            "total_supply": total_supply,
+            "protocol_reward_rate": builder.stake_rewards.unwrap_or([1, 1]), // do not increase balance with rewards to simplify tests
             // "max_inflation_rate": [1, 40], // default: [1, 40],
         })),
         validators: Some(vec![ValidatorAccount {
@@ -403,7 +415,10 @@ async fn sandbox_config(reward_rate: Option<[u32; 2]>) -> SandboxConfig {
                 account_id: LST.parse().unwrap(),
                 public_key: validator_public_key,
                 private_key: validator_private_key.to_string(),
-                balance: INITIAL_BALANCE.saturating_sub(INIT_LOCK),
+                balance: builder
+                    .initial_balance
+                    .unwrap_or(INITIAL_BALANCE)
+                    .saturating_sub(INIT_LOCK),
                 locked: INIT_LOCK,
             },
         ],

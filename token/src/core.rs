@@ -1,11 +1,13 @@
 use near_contract_standards::fungible_token::FungibleTokenCore;
+use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
-use near_sdk::{AccountId, PromiseOrValue, env, near};
+use near_sdk::{AccountId, NearToken, PromiseOrValue, env, near};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 #[near]
 impl FungibleTokenCore for LiquidStakingToken {
+    #[pause]
     #[payable]
     fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>) {
         let is_new_delegator = self.is_zero_balance(&receiver_id);
@@ -21,6 +23,7 @@ impl FungibleTokenCore for LiquidStakingToken {
         }
     }
 
+    #[pause]
     #[payable]
     fn ft_transfer_call(
         &mut self,
@@ -49,6 +52,29 @@ impl FungibleTokenCore for LiquidStakingToken {
 }
 
 impl LiquidStakingToken {
+    pub(crate) fn treasury_deposit(&mut self, amount: NearToken) {
+        let treasury_id = self.treasury_id.clone();
+        self.internal_deposit(&treasury_id, amount);
+    }
+
+    pub(crate) fn internal_deposit(&mut self, account_id: &AccountId, amount: NearToken) {
+        if self.is_zero_balance(account_id) {
+            self.statistics.increase_delegators();
+        }
+
+        self.token
+            .internal_deposit(account_id, amount.as_yoctonear());
+    }
+
+    pub(crate) fn internal_withdraw(&mut self, account_id: &AccountId, amount: NearToken) {
+        self.token
+            .internal_withdraw(account_id, amount.as_yoctonear());
+
+        if self.is_zero_balance(account_id) {
+            self.statistics.decrease_delegators();
+        }
+    }
+
     pub(crate) fn is_zero_balance(&self, account_id: &AccountId) -> bool {
         self.token.ft_balance_of(account_id.clone()).0 == 0
     }

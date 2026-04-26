@@ -6,7 +6,7 @@ use crate::env::ft::FungibleToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
-use crate::tests::{STAKE_AMOUNT, stake_message, unstake_message};
+use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, stake_message, unstake_message};
 
 /// Alice and Bob stake independently, unstake with different messages (different
 /// receiver_ids produce different queue keys), and each withdraws their own funds
@@ -63,7 +63,10 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
 
     env.wait_unstake_cooldown().await?;
 
-    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(ONE_YOCTO)
+    );
 
     // Each user withdraws their own entry independently.
     env.lst.withdraw(alice, &alice_unstake_msg).await?;

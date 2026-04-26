@@ -73,10 +73,7 @@ impl LiquidStakingToken {
                 .saturating_add(near_amount);
             user_distribution.unstake_epoch = epoch_id;
 
-            self.statistics.total_pending_unstake = self
-                .statistics
-                .total_pending_unstake
-                .saturating_add(near_amount);
+            self.statistics.increase_pending_withdrawals(near_amount);
 
             PromiseOrValue::Value(0.into())
         } else {
@@ -99,7 +96,7 @@ impl LiquidStakingToken {
             "Unstake amount must be more than 0"
         );
 
-        self.sync_rewards_internal();
+        self.sync_rewards_internal(None);
 
         let msg_hash = args
             .hash()
@@ -126,7 +123,7 @@ impl LiquidStakingToken {
         )
         .with_unused_gas_weight(0)
         .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
-        .modify_total_staked_amount(
+        .modify_state_after_stake(
             &env::current_account_id(),
             new_total_staked_amount,
             lst_amount,

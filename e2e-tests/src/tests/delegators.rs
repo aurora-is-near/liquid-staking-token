@@ -367,6 +367,7 @@ async fn test_alice_bob_stake_alice_unstakes_bob_transfers_to_alice() -> TestRes
             stake_message(alice.id(), None, None::<&str>),
         )
         .await?;
+
     env.lst
         .stake(
             bob,

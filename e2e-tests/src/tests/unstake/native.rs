@@ -202,7 +202,9 @@ async fn test_partial_unstake_preserves_remaining_lst() -> TestResult {
     // Locked balance reflects only the staked portion.
     assert_eq!(
         env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(remaining)
+        INIT_LOCK
+            .saturating_add(remaining)
+            .saturating_add(ONE_YOCTO)
     );
 
     env.lst.withdraw(alice, &unstake_msg).await?;

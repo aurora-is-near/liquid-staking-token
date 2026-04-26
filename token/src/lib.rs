@@ -3,7 +3,7 @@ use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_plugins::{AccessControlRole, AccessControllable, Pausable, Upgradable, access_control};
 use near_sdk::borsh::BorshDeserialize;
 use near_sdk::borsh::BorshSerialize;
-use near_sdk::store::LookupMap;
+use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{
     AccountId, BorshStorageKey, CryptoHash, NearToken, PanicOnDefault, PublicKey, env, near,
     require,
@@ -19,6 +19,7 @@ mod resolver;
 mod storage;
 mod traits;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 
 #[derive(BorshSerialize, BorshStorageKey)]
@@ -26,6 +27,7 @@ pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 enum StorageKey {
     FungibleToken,
     UnstakeQueue,
+    WithdrawalLocks,
 }
 
 #[derive(AccessControlRole, Clone, Copy)]
@@ -58,10 +60,14 @@ pub struct LiquidStakingToken {
     metadata: FungibleTokenMetadata,
     /// The queue for unstake requests.
     unstake_queue: LookupMap<CryptoHash, UserDistribution>,
+    /// Withdrawal locks.
+    withdrawal_locks: LookupSet<CryptoHash>,
     /// The ID of the account that owns the contract.
     owner_id: AccountId,
     /// The ID of the account that holds wNEAR.
     wnear_id: AccountId,
+    /// The ID of the account that holds treasury.
+    treasury_id: AccountId,
     /// The public key of the validator.
     validator_public_key: PublicKey,
     /// The pool statistics.
@@ -76,6 +82,7 @@ impl LiquidStakingToken {
     pub fn new(
         owner_id: AccountId,
         wnear_id: AccountId,
+        treasury_id: AccountId,
         validator_public_key: PublicKey,
         metadata: FungibleTokenMetadata,
         init_lock: Option<NearToken>,
@@ -84,17 +91,31 @@ impl LiquidStakingToken {
         metadata.assert_valid();
 
         let mut token = FungibleToken::new(StorageKey::FungibleToken);
+
         token.internal_register_account(&env::current_account_id());
+
+        if env::current_account_id() != treasury_id {
+            token.internal_register_account(&treasury_id);
+        }
+
+        let latest_total_balance = env::account_locked_balance()
+            .checked_add(env::account_balance())
+            .unwrap_or_else(|| env::panic_str("Overflow while calculating total balance"));
 
         let mut contract = Self {
             token,
             metadata,
             unstake_queue: LookupMap::new(StorageKey::UnstakeQueue),
+            withdrawal_locks: LookupSet::new(StorageKey::WithdrawalLocks),
             owner_id: owner_id.clone(),
             wnear_id,
+            treasury_id,
             validator_public_key,
-            statistics: init_lock
-                .map_or_else(PoolStatistics::default, PoolStatistics::with_init_lock),
+            statistics: PoolStatistics {
+                latest_total_balance,
+                total_staked_amount: init_lock.unwrap_or_default(),
+                ..Default::default()
+            },
         };
 
         if let Some(init_lock) = init_lock {
@@ -103,6 +124,12 @@ impl LiquidStakingToken {
 
         contract.grant_roles(&owner_id);
         contract
+    }
+
+    /// Return the version of the contract.
+    #[must_use]
+    pub const fn get_version() -> &'static str {
+        VERSION
     }
 }
 

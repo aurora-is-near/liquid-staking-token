@@ -1,4 +1,5 @@
 use liquid_staking_token::pool::WithdrawTokens;
+use near_api::NearToken;
 use testresult::TestResult;
 
 use crate::env::ft::{FT_STORAGE_DEPOSIT, FungibleToken};
@@ -443,6 +444,83 @@ async fn test_stake_native_near_by_alice_and_unstake_wnear_to_bad_account() -> T
 
     assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, STAKE_AMOUNT);
     assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_near_by_alice_and_try_to_bloat_storage() -> TestResult {
+    const NUM_TRANSACTIONS: usize = 10;
+    let env = Env::builder()
+        .with_initial_balance(INIT_LOCK.saturating_add(NearToken::from_near(1)))
+        .build()
+        .await?;
+
+    let alice = env.alice();
+    let alice_init_balance = alice.near_balance().await?;
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+
+    let lst_balance = env.lst.ft_balance_of(alice.id()).await?;
+    assert_eq!(lst_balance, STAKE_AMOUNT);
+
+    let unstake_messages =
+        vec![STAKE_AMOUNT.saturating_div(NUM_TRANSACTIONS as u128); NUM_TRANSACTIONS]
+            .into_iter()
+            .enumerate()
+            .map(|(i, amount)| {
+                (
+                    amount,
+                    unstake_message(
+                        alice.id(),
+                        &WithdrawTokens::Wnear {
+                            storage_deposit: None,
+                            msg: None,
+                            memo: Some(format!("unstake number: {i}")),
+                            min_gas: None,
+                        },
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+
+    for (amount, unstake_message) in &unstake_messages {
+        env.lst
+            .ft_transfer_call(alice, env.lst.id(), *amount, unstake_message)
+            .await?;
+    }
+
+    assert_eq!(env.lst.ft_balance_of(env.lst.id()).await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+
+    env.wait_unstake_cooldown().await?;
+
+    for (_, unstake_message) in &unstake_messages {
+        env.lst.withdraw(alice, unstake_message).await?;
+    }
+
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_init_balance
+            .total
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(ONE_YOCTO.saturating_mul(NUM_TRANSACTIONS as u128)) // ft_transfer_calls
+    );
+
+    assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked.as_micronear(), INIT_LOCK.as_micronear());
 
     Ok(())
 }

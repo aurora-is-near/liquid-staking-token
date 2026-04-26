@@ -11,7 +11,7 @@ use testresult::TestResult;
 use crate::env::ft::FungibleToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
-use crate::env::{Env, TOTAL_SUPPLY};
+use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE, TOTAL_SUPPLY};
 use crate::tests::{STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 #[tokio::test]
@@ -19,7 +19,7 @@ async fn test_getting_rewards_for_two_epochs() -> TestResult {
     let env = env().await?;
     let alice = env.alice();
 
-    env.lst.set_withdrawal_fee_bps(0).await?; // 0 %
+    env.lst.set_protocol_fee_bps(0).await?; // 0 %
 
     let balance_before = alice.near_balance().await?.total;
 
@@ -66,9 +66,11 @@ async fn test_getting_rewards_for_two_epochs_with_fee() -> TestResult {
     let env = env().await?;
     let alice = env.alice();
 
-    env.lst.set_withdrawal_fee_bps(10).await?; // 0.1 %
+    env.lst.set_protocol_fee_bps(100).await?; // 1 %
 
     let balance_before = alice.near_balance().await?.total;
+    let validator_lst_balance = env.lst.ft_balance_of(env.lst.id()).await?;
+    let total_balance_before = env.lst.get_total_balance().await?;
 
     env.lst
         .stake(
@@ -89,30 +91,59 @@ async fn test_getting_rewards_for_two_epochs_with_fee() -> TestResult {
         .await?;
 
     let exchange_rate = env.lst.get_exchange_rate().await?;
+    let total_pending_withdrawals = env.lst.get_total_pending_withdrawals().await?;
+    assert_eq!(
+        total_pending_withdrawals.as_millinear(),
+        lst_to_near(lst_balance, exchange_rate).as_millinear()
+    );
 
     env.wait_unstake_cooldown().await?;
 
     env.lst.withdraw(alice, &unstake_msg).await?;
 
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
 
-    let expected_reward = calculate_reward(lst_balance, STAKE_AMOUNT, exchange_rate);
-    let fee = calculate_fee(lst_balance, exchange_rate, 10);
-    let expected_reward_without_fee = expected_reward.saturating_sub(fee);
-    let actual_reward = alice
+    let alice_reward = alice
         .near_balance()
         .await?
         .total
         .saturating_sub(balance_before);
 
+    let protocol_fee_lst = env
+        .lst
+        .ft_balance_of(env.lst.id())
+        .await?
+        .saturating_sub(validator_lst_balance);
+    let protocol_fee = lst_to_near(protocol_fee_lst, exchange_rate);
+    let total_reward = protocol_fee.saturating_mul(100); // Protocol fee is 1%
+
     assert_eq!(
-        expected_reward_without_fee.as_near(),
-        actual_reward.as_near()
+        env.lst.get_total_balance().await?.as_micronear(),
+        total_balance_before
+            .saturating_add(total_reward)
+            .saturating_sub(alice_reward)
+            .as_micronear()
     );
+
     assert_eq!(
-        env.lst.get_collected_fees().await?.as_micronear(),
-        fee.as_micronear()
+        env.lst
+            .get_total_balance()
+            .await?
+            .saturating_sub(INITIAL_BALANCE),
+        env.lst
+            .get_total_staked_balance()
+            .await?
+            .saturating_sub(INIT_LOCK)
     );
+
+    let alice_proportion_in_stake = INIT_LOCK
+        .saturating_add(STAKE_AMOUNT)
+        .saturating_div(STAKE_AMOUNT.as_yoctonear());
+    let alice_proportion_in_rewards = total_reward.saturating_div(alice_reward.as_yoctonear());
+
+    assert!(!alice_proportion_in_stake.is_zero() && !alice_proportion_in_rewards.is_zero());
+    assert_eq!(alice_proportion_in_stake, alice_proportion_in_rewards);
 
     Ok(())
 }
@@ -134,17 +165,17 @@ async fn env() -> anyhow::Result<Env> {
 }
 
 fn calculate_reward(
-    lst_balance: NearToken,
+    lst_amount: NearToken,
     stake_amount: NearToken,
     exchange_rate: f64,
 ) -> NearToken {
-    let reward_float = f64::from(U256::from(lst_balance.as_yoctonear())) * exchange_rate;
-    NearToken::from_yoctonear(reward_float.round() as u128).saturating_sub(stake_amount)
+    lst_to_near(lst_amount, exchange_rate).saturating_sub(stake_amount)
 }
 
-fn calculate_fee(lst_balance: NearToken, exchange_rate: f64, fee_bps: u128) -> NearToken {
-    let reward_float = f64::from(U256::from(lst_balance.as_yoctonear())) * exchange_rate;
-    NearToken::from_yoctonear((reward_float.round() as u128) * fee_bps / 10000)
+fn lst_to_near(lst_amount: NearToken, exchange_rate: f64) -> NearToken {
+    NearToken::from_yoctonear(
+        (f64::from(U256::from(lst_amount.as_yoctonear())) * exchange_rate).round() as u128,
+    )
 }
 
 #[allow(dead_code)]
