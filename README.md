@@ -283,21 +283,37 @@ The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
+>
+> **Re-unstaking with the same `UnstakeMessage` adds to the existing queue entry and resets its cooldown to the
+> current epoch.** Any prior pending claim under that hash therefore has to wait the full 4-epoch cooldown again
+> from the new unstake — the new and old portions can only be withdrawn together. To preserve a previous unstake's
+> cooldown, use a different `UnstakeMessage` (e.g. a different `memo` or `min_gas`, both of which are part of the
+> hash).
 
 #### Partial delivery and retries (wNEAR with `msg`)
 
 When wNEAR is delivered via `ft_transfer_call` (i.e. `msg` is set), the receiver may consume only part of the amount.
-The unconsumed wNEAR is refunded back to the LST contract by the wNEAR contract's `ft_resolve_transfer`, and the queue
-entry is shrunk to the residual amount so the user can retry `withdraw` for the remainder.
+The unconsumed wNEAR is refunded back to the LST contract by the wNEAR contract's `ft_resolve_transfer`, and the
+queue entry is updated so the user can retry `withdraw` for the remainder.
+
+The contract tracks the residual precisely: it records how much of the entry's claim is **already held as wNEAR** at
+the contract (refunded back from a prior partial delivery) versus how much is **still in NEAR form** on the contract
+account. The next `withdraw` only `near_deposit`s the still-in-NEAR portion before sending out the full claim — the
+residual wNEAR rides along untouched.
 
 A few consequences worth knowing:
 
-- Concurrent `withdraw` calls for the same queue entry are rejected (`"The withdrawal for this hash is already in
-  progress"`). Wait for the in-flight call to complete before retrying.
-- On retry, neither `near_deposit` nor `storage_deposit` is performed again — the contract sends the residual wNEAR it
-  already holds, and assumes the receiver is still registered.
-- If the receiver's `ft_on_transfer` panics outright (no partial delivery), nothing changes in the queue and the user
-  may simply call `withdraw` again.
+- **`near_deposit` is skipped only for the residual portion.** A pure retry (no re-unstake in between) sends just the
+  residual wNEAR; no fresh NEAR is converted. If you re-unstake into the same hash between attempts, the next
+  `withdraw` `near_deposit`s only the *new* portion and the residual is delivered alongside it.
+- **`storage_deposit` is paid at most once per queue entry.** The first attempt that requests one registers the
+  receiver on the wNEAR contract; subsequent retries skip the registration step regardless of what `storage_deposit`
+  the `UnstakeMessage` carries.
+- **Re-unstaking into a partial entry resets the cooldown.** Per the note above, re-using the same `UnstakeMessage`
+  adds to the entry's claim *and* shifts its `unstake_epoch` to the current epoch. The residual you could have
+  withdrawn now has to wait another 4 epochs alongside the new portion.
+- **Total failure of `ft_on_transfer` (panic, no `ft_resolve_transfer` refund) leaves the queue untouched.** The user
+  may simply call `withdraw` again — no cooldown reset, no residual recorded.
 
 ---
 
@@ -328,6 +344,11 @@ The contract:
 4. Removes the entry from the queue.
 
 If called too early, the transaction panics with `"The cooldown hasn't passed yet"`.
+
+A given queue entry can have **at most one `withdraw` call in flight at a time**. Concurrent `withdraw` calls for the
+same `UnstakeMessage` hash — both native and wNEAR variants — are rejected with `"The withdrawal for this hash is
+already in progress"`. The lock is released by the chain's terminal callback, so callers should wait for the prior
+call to finish before retrying.
 
 ---
 
@@ -377,17 +398,17 @@ near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
 
 ### View methods
 
-| Method                             | Returns                                    | Notes                                                           |
-|------------------------------------|--------------------------------------------|-----------------------------------------------------------------|
-| `get_exchange_rate`                | `{ numerator, denominator }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync. |
-| `get_reward_fee_fraction`          | `{ numerator, denominator }` (bps / 10000) | Currently configured protocol fee.                              |
-| `get_total_staked_balance`         | `NearToken`                                | Tracked NEAR backing the LST supply.                            |
-| `get_total_pending_withdrawals`    | `NearToken`                                | Sum of NEAR amounts queued for withdrawal.                      |
-| `get_total_balance`                | `NearToken`                                | Last-recorded `locked + unlocked` balance in NEAR.              |
-| `get_number_of_accounts`           | `u64`                                      | Number of LST holders.                                          |
-| `get_owner_id` / `get_treasury_id` | `AccountId`                                | Configured roles.                                               |
-| `get_staking_key`                  | `PublicKey`                                | Validator key the contract delegates to.                        |
-| `get_version`                      | `&'static str`                             | Crate version baked in at build time.                           |
+| Method                             | Returns                                                | Notes                                                           |
+|------------------------------------|--------------------------------------------------------|-----------------------------------------------------------------|
+| `get_exchange_rate`                | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync. |
+| `get_reward_fee_fraction`          | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                              |
+| `get_total_staked_balance`         | `NearToken`                                            | Tracked NEAR backing the LST supply.                            |
+| `get_total_pending_withdrawals`    | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                      |
+| `get_total_balance`                | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.              |
+| `get_number_of_accounts`           | `u64`                                                  | Number of LST holders.                                          |
+| `get_owner_id` / `get_treasury_id` | `AccountId`                                            | Configured roles.                                               |
+| `get_staking_key`                  | `PublicKey`                                            | Validator key the contract delegates to.                        |
+| `get_version`                      | `&'static str`                                         | Crate version baked in at build time.                           |
 
 ---
 

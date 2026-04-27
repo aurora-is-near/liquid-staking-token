@@ -10,7 +10,7 @@ async fn test_set_protocol_fee_bps() -> TestResult {
 
     assert_eq!(
         env.lst.get_reward_fee_fraction().await?,
-        json!({"numerator":"0", "denominator":"10000"})
+        json!({"numerator":0, "denominator":10000})
     );
 
     // Attempt to set protocol fee as non-owner should fail.
@@ -22,7 +22,7 @@ async fn test_set_protocol_fee_bps() -> TestResult {
 
     assert_eq!(
         env.lst.get_reward_fee_fraction().await?,
-        json!({"numerator":"1000", "denominator":"10000"})
+        json!({"numerator":1000, "denominator":10000})
     );
 
     Ok(())

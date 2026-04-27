@@ -29,6 +29,12 @@ pub struct Ratio {
     denominator: U128,
 }
 
+#[near(serializers = [json])]
+pub struct RatioU16 {
+    numerator: u16,
+    denominator: u16,
+}
+
 #[near]
 impl LiquidStakingToken {
     /// Returns the number of delegators in the pool.
@@ -54,10 +60,10 @@ impl LiquidStakingToken {
     }
 
     /// Returns the protocol fee fraction as a ratio.
-    pub fn get_reward_fee_fraction(&self) -> Ratio {
-        Ratio {
-            numerator: U128(self.statistics.protocol_fee_bps.into()),
-            denominator: U128(stats::BPS_DENOMINATOR.into()),
+    pub fn get_reward_fee_fraction(&self) -> RatioU16 {
+        RatioU16 {
+            numerator: self.statistics.protocol_fee_bps,
+            denominator: stats::BPS_DENOMINATOR,
         }
     }
 
