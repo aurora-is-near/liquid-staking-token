@@ -449,6 +449,7 @@ async fn test_stake_native_near_by_alice_and_unstake_wnear_to_bad_account() -> T
 }
 
 #[tokio::test]
+#[allow(clippy::as_conversions)]
 async fn test_stake_native_near_by_alice_and_try_to_bloat_storage() -> TestResult {
     const NUM_TRANSACTIONS: usize = 10;
     let env = Env::builder()

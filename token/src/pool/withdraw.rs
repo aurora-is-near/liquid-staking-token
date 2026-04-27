@@ -20,9 +20,11 @@ pub struct UserDistribution {
     pub withdrawal_amount: NearToken,
     /// Epoch at which the user initiated the unstake operation.
     pub unstake_epoch: u64,
-    /// Whether the user has already deposited storage in the previous withdrawals. The flag
-    /// protects against double storage deposits in the case of a partial withdrawal.
-    pub storage_already_deposited: bool,
+    /// Marks the queue entry as carrying residual wNEAR already held by the contract
+    /// from a previous partial delivery. On retry, both `near_deposit` and
+    /// `storage_deposit` must be skipped: the wNEAR is already deposited (refunded
+    /// back via `ft_resolve_transfer`), and the receiver is already registered.
+    pub is_distributed_before: bool,
 }
 
 #[near]
@@ -52,9 +54,10 @@ impl LiquidStakingToken {
     pub fn on_withdraw_wnear(
         &mut self,
         msg_hash: CryptoHash,
-        total_amount: NearToken,
-        withdrawal_amount: NearToken,
+        total_amount: NearToken, // The amount could include storage_deposit.
+        withdrawal_amount: NearToken, // The amount without storage_deposit.
         is_call: bool,
+        is_distributed_before: bool,
     ) {
         require!(
             env::promise_results_count() == 1,
@@ -72,7 +75,7 @@ impl LiquidStakingToken {
                 withdrawal_amount
             };
 
-            let pending_decrement = if consumed >= withdrawal_amount {
+            let actual_amount = if consumed >= withdrawal_amount {
                 self.unstake_queue.remove(&msg_hash);
                 total_amount
             } else {
@@ -85,16 +88,17 @@ impl LiquidStakingToken {
 
                 user_distribution.withdrawal_amount = refund;
                 // Storage was already paid on this attempt; don't charge again.
-                user_distribution.storage_already_deposited = true;
+                user_distribution.is_distributed_before = true;
 
                 total_amount.saturating_sub(refund)
             };
 
-            self.statistics
-                .decrease_pending_withdrawals(pending_decrement);
-            // The full queued amount left the contract's NEAR balance: delivered as wnear,
-            // held as undelivered wnear, or paid as storage to the wnear contract.
-            self.statistics.decrease_total_balance(total_amount);
+            self.statistics.decrease_pending_withdrawals(actual_amount);
+
+            // We need to subtract the withdrawal amount from the total balance only once.
+            if !is_distributed_before {
+                self.statistics.decrease_total_balance(total_amount);
+            }
         } else {
             near_sdk::log!("Error while withdrawing wNEAR");
         }
@@ -118,7 +122,7 @@ impl LiquidStakingToken {
         self.statistics.decrease_pending_withdrawals(amount);
 
         near_sdk::log!(
-            "Withdraw to {receiver_id} amount: {}",
+            "Withdraw to {receiver_id} amount: {} yoctoNEAR",
             amount.as_yoctonear(),
         );
 
@@ -156,7 +160,7 @@ impl LiquidStakingToken {
         let is_distributed_before = self
             .unstake_queue
             .get(&msg_hash)
-            .is_some_and(|entry| entry.storage_already_deposited);
+            .is_some_and(|entry| entry.is_distributed_before);
 
         let amount_without_storage = if is_distributed_before {
             amount
@@ -166,23 +170,28 @@ impl LiquidStakingToken {
                 .unwrap_or_else(|| env::panic_str("Storage deposit exceeds the withdrawal amount"))
         };
 
-        let mut promise = ext_wnear::ext(self.wnear_id.clone())
-            .with_static_gas(NEAR_DEPOSIT_GAS)
-            .with_attached_deposit(amount_without_storage)
-            .near_deposit();
+        let mut promise = if is_distributed_before {
+            Promise::new(self.wnear_id.clone())
+        } else {
+            // We must call the near_deposit only once.
+            let promise = ext_wnear::ext(self.wnear_id.clone())
+                .with_static_gas(NEAR_DEPOSIT_GAS)
+                .with_attached_deposit(amount_without_storage)
+                .near_deposit();
+
+            if let Some(storage_deposit) = storage_deposit {
+                ext_storage_management::ext_on(promise)
+                    .with_static_gas(STORAGE_DEPOSIT_GAS)
+                    .with_attached_deposit(storage_deposit)
+                    .storage_deposit(Some(args.receiver_id.clone()), None)
+            } else {
+                promise
+            }
+        };
 
         let is_call = if args.receiver_id == env::current_account_id() {
             false
         } else {
-            if let Some(storage_deposit) = storage_deposit {
-                if !is_distributed_before {
-                    promise = ext_storage_management::ext_on(promise)
-                        .with_static_gas(STORAGE_DEPOSIT_GAS)
-                        .with_attached_deposit(storage_deposit)
-                        .storage_deposit(Some(args.receiver_id.clone()), None);
-                }
-            }
-
             let is_call = msg.is_some();
             let min_gas = calculate_min_gas(min_gas, is_call);
 
@@ -216,7 +225,13 @@ impl LiquidStakingToken {
                 Self::ext(env::current_account_id())
                     .with_unused_gas_weight(1)
                     .with_static_gas(ON_WITHDRAW_WNEAR_GAS)
-                    .on_withdraw_wnear(msg_hash, amount, amount_without_storage, is_call),
+                    .on_withdraw_wnear(
+                        msg_hash,
+                        amount,
+                        amount_without_storage,
+                        is_call,
+                        is_distributed_before,
+                    ),
             )
             .then(
                 Self::ext(env::current_account_id())

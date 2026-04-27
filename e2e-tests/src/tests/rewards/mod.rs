@@ -137,12 +137,13 @@ async fn test_getting_rewards_for_two_epochs_with_fee() -> TestResult {
             .saturating_sub(INIT_LOCK)
     );
 
-    let alice_proportion_in_stake = INIT_LOCK
-        .saturating_add(STAKE_AMOUNT)
-        .saturating_div(STAKE_AMOUNT.as_yoctonear());
-    let alice_proportion_in_rewards = total_reward.saturating_div(alice_reward.as_yoctonear());
+    // Compare proportions as ratios of yoctonear values
+    let total_stake_yocto = INIT_LOCK.saturating_add(STAKE_AMOUNT).as_yoctonear();
+    let alice_stake_yocto = STAKE_AMOUNT.as_yoctonear();
+    let alice_proportion_in_stake = total_stake_yocto / alice_stake_yocto;
+    let alice_proportion_in_rewards = total_reward.as_yoctonear() / alice_reward.as_yoctonear();
 
-    assert!(!alice_proportion_in_stake.is_zero() && !alice_proportion_in_rewards.is_zero());
+    assert!(alice_proportion_in_stake > 0 && alice_proportion_in_rewards > 0);
     assert_eq!(alice_proportion_in_stake, alice_proportion_in_rewards);
 
     Ok(())
