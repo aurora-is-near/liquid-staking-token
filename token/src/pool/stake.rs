@@ -6,7 +6,7 @@ use near_sdk::json_types::U128;
 use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require};
 
 use crate::pool::{
-    LstToken, MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
+    MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
 };
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
@@ -86,7 +86,7 @@ impl LiquidStakingToken {
         &mut self,
         deposit_token: DepositToken,
         total_stake_amount: NearToken,
-        lst_tokens: LstToken,
+        lst_tokens: NearToken,
         args: StakeMessage,
         is_contract_staking: bool,
     ) -> PromiseOrValue<U128> {
@@ -119,6 +119,9 @@ impl LiquidStakingToken {
                     PromiseOrValue::Value(U128(0))
                 }
             }
+            // Reachable only if `modify_state_after_stake` (the immediate
+            // predecessor) panics — the underlying `stake` action's failure
+            // does not propagate here. Kept as a defensive recovery path.
             Err(_) => match deposit_token {
                 DepositToken::Native => env::panic_str("Error while staking native NEAR"),
                 DepositToken::Wnear => ext_wnear::ext(self.wnear_id.clone())
@@ -138,12 +141,12 @@ impl LiquidStakingToken {
     }
 
     #[private]
-    pub fn refund_wnear_deposit(&mut self, amount: NearToken) -> PromiseOrValue<U128> {
+    pub fn refund_wnear_deposit(&self, amount: NearToken) -> U128 {
         match env::promise_result_checked(0, 0) {
-            Ok(_) => PromiseOrValue::Value(amount.as_yoctonear().into()),
+            Ok(_) => amount.as_yoctonear().into(),
             Err(e) => {
                 near_sdk::log!("Error while depositing near to wNEAR: {e}");
-                PromiseOrValue::Value(0.into())
+                0.into()
             }
         }
     }
@@ -151,34 +154,30 @@ impl LiquidStakingToken {
     #[private]
     pub fn on_ft_on_transfer(
         &mut self,
-        lst_tokens: LstToken,
+        lst_tokens: NearToken,
         args: StakeMessage,
     ) -> PromiseOrValue<U128> {
-        // The refund message wasn't attached, so consider the result of the `ft_on_transfer`
-        // as successful without refunding.
-        if args.refund_message.is_none() {
+        // No refund message means the receiver's `ft_on_transfer` result is
+        // accepted as-is, with no automatic recovery.
+        let Some(unstake_msg) = args.refund_message else {
+            return PromiseOrValue::Value(0.into());
+        };
+
+        let consumed = self
+            .ft_resolve_transfer(
+                env::current_account_id(),
+                args.receiver_id.clone(),
+                lst_tokens.as_yoctonear().into(),
+            )
+            .0;
+
+        let refund = lst_tokens.saturating_sub(NearToken::from_yoctonear(consumed));
+
+        if refund.is_zero() {
             return PromiseOrValue::Value(0.into());
         }
 
-        let consumed_lst_tokens = self.ft_resolve_transfer(
-            env::current_account_id(),
-            args.receiver_id.clone(),
-            lst_tokens.as_yoctonear().into(),
-        );
-
-        let refund_lst_tokens =
-            lst_tokens.saturating_sub(NearToken::from_yoctonear(consumed_lst_tokens.0));
-
-        if refund_lst_tokens.is_zero() {
-            return PromiseOrValue::Value(0.into());
-        }
-
-        let unstake_msg = args
-            .refund_message
-            .unwrap_or_else(|| env::panic_str("The refund message is invalid or doesn't exist"));
-
-        self.handle_unstaking(refund_lst_tokens, &unstake_msg)
-            .into()
+        self.handle_unstaking(refund, &unstake_msg).into()
     }
 }
 

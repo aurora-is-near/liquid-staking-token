@@ -15,6 +15,7 @@ impl LiquidStakingToken {
             "protocol fee exceeds MAX_PROTOCOL_FEE_BPS, which is 20%"
         );
 
+        self.sync_rewards_internal(None);
         self.statistics.protocol_fee_bps = fee_bps;
     }
 

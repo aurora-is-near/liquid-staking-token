@@ -1,77 +1,17 @@
 use near_contract_standards::fungible_token::core::ext_ft_core;
 use near_contract_standards::storage_management::ext_storage_management;
-use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
-use near_sdk::{AccountId, CryptoHash, Gas, NearToken, Promise, env, near, require};
+use near_sdk::{CryptoHash, NearToken, Promise, env, near, require};
 
-use crate::pool::unstake::{UnstakeMessage, WithdrawTokens};
-use crate::pool::{MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, calculate_min_gas};
+use crate::pool::withdraw::{ON_WITHDRAW_WNEAR_GAS, REMOVE_LOCK_GAS};
+use crate::pool::{
+    MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens, calculate_min_gas,
+};
 use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
-const UNSTAKE_COOLDOWN_PERIOD: u64 = 4;
-const ON_WITHDRAW_WNEAR_GAS: Gas = Gas::from_tgas(5);
-const ON_WITHDRAW_NATIVE_GAS: Gas = Gas::from_tgas(3);
-const REMOVE_LOCK_GAS: Gas = Gas::from_tgas(1);
-
-#[derive(Debug, Default, Clone, Copy)]
-#[near(serializers = [borsh])]
-pub struct UserDistribution {
-    /// The total NEAR-equivalent amount the user can claim from this entry.
-    /// `withdrawal_amount - wnear_residual` is still held in NEAR form on the
-    /// contract account; `wnear_residual` is already in wNEAR (refunded back
-    /// from a prior partial `ft_transfer_call`).
-    pub withdrawal_amount: NearToken,
-    /// Epoch at which the user initiated the most recent unstake into this
-    /// entry. Each subsequent unstake into the same entry resets this and
-    /// therefore the cooldown.
-    pub unstake_epoch: u64,
-    /// How much of `withdrawal_amount` is already held as wNEAR by the
-    /// contract account. On the next withdrawal, only the difference
-    /// (`withdrawal_amount - wnear_residual`) needs a fresh `near_deposit`.
-    /// Invariant: `wnear_residual <= withdrawal_amount`.
-    pub wnear_residual: NearToken,
-    /// Set after a previous attempt successfully paid `storage_deposit` to
-    /// register the receiver on the wNEAR contract. Subsequent retries skip
-    /// the storage_deposit step.
-    pub storage_was_paid: bool,
-}
-
 #[near]
 impl LiquidStakingToken {
-    #[pause]
-    pub fn withdraw(&mut self, args: UnstakeMessage) -> Promise {
-        let msg_hash = args
-            .hash()
-            .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
-        let (amount, epoch) = self.unstake_queue.get(&msg_hash).map_or_else(
-            || env::panic_str("Account is not found in the unstake queue"),
-            |entry| (&entry.withdrawal_amount, &entry.unstake_epoch),
-        );
-
-        require!(
-            *epoch + UNSTAKE_COOLDOWN_PERIOD <= env::epoch_height(),
-            "The cooldown hasn't passed yet"
-        );
-
-        match args.withdraw_tokens {
-            WithdrawTokens::Native => Self::withdraw_native(args.receiver_id, *amount, msg_hash),
-            WithdrawTokens::Wnear { .. } => self.withdraw_wnear(*amount, args, msg_hash),
-        }
-    }
-
-    #[private]
-    pub fn on_withdraw_native(&mut self, msg_hash: CryptoHash, amount: NearToken) {
-        if env::promise_result_checked(0, 0).is_ok() {
-            near_sdk::log!("Native NEAR withdrawn successfully");
-            self.unstake_queue.remove(&msg_hash);
-            self.statistics.decrease_total_balance(amount);
-            self.statistics.decrease_pending_withdrawals(amount);
-        } else {
-            near_sdk::log!("Error while withdrawing Native NEAR");
-        }
-    }
-
     #[private]
     pub fn on_withdraw_wnear(
         &mut self,
@@ -151,34 +91,17 @@ impl LiquidStakingToken {
             near_sdk::log!("Error while withdrawing wNEAR");
         }
     }
-
-    #[private]
-    pub fn remove_lock(&mut self, msg_hash: CryptoHash) {
-        self.withdrawal_locks.remove(&msg_hash);
-    }
 }
 
 impl LiquidStakingToken {
-    fn withdraw_native(receiver_id: AccountId, amount: NearToken, msg_hash: CryptoHash) -> Promise {
-        near_sdk::log!(
-            "Withdraw to {receiver_id} amount: {} yoctoNEAR",
-            amount.as_yoctonear(),
-        );
-
-        Promise::new(receiver_id).transfer(amount).then(
-            Self::ext(env::current_account_id())
-                .with_unused_gas_weight(1)
-                .with_static_gas(ON_WITHDRAW_NATIVE_GAS)
-                .on_withdraw_native(msg_hash, amount),
-        )
-    }
-
-    fn withdraw_wnear(
+    pub(super) fn withdraw_wnear(
         &mut self,
         amount: NearToken,
         args: UnstakeMessage,
         msg_hash: CryptoHash,
     ) -> Promise {
+        // Unreachable: `withdraw` only dispatches to this function on the
+        // `Wnear` variant. Kept so the compiler can prove the destructure.
         let WithdrawTokens::Wnear {
             storage_deposit,
             msg,
@@ -189,17 +112,17 @@ impl LiquidStakingToken {
             env::panic_str("Invalid withdraw tokens type");
         };
 
+        let is_self_withdraw = args.receiver_id == env::current_account_id();
+
         require!(
-            args.receiver_id != env::current_account_id() || storage_deposit.is_none(),
+            !is_self_withdraw || storage_deposit.is_none(),
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
         require!(
-            !self.withdrawal_locks.contains(&msg_hash),
+            self.withdrawal_locks.insert(msg_hash),
             "The withdrawal for this hash is already in progress"
         );
-
-        self.withdrawal_locks.insert(msg_hash);
 
         // Read the per-entry state set by prior attempts:
         //   - wnear_residual: how much of `amount` is already wNEAR at this
@@ -233,7 +156,6 @@ impl LiquidStakingToken {
             .checked_sub(wnear_residual)
             .unwrap_or_else(|| env::panic_str("wNEAR residual exceeds the deliverable amount"));
 
-        let is_self_withdraw = args.receiver_id == env::current_account_id();
         let is_call = !is_self_withdraw && msg.is_some();
         let ft_min_gas = calculate_min_gas(min_gas, is_call);
         let ft_amount: U128 = amount_to_send.as_yoctonear().into();

@@ -34,7 +34,6 @@ enum StorageKey {
 #[near(serializers = [json])]
 enum Role {
     Admin,
-    SignatureVerifier,
     PauseManager,
     UnpauseManager,
 }
@@ -109,7 +108,7 @@ impl LiquidStakingToken {
             withdrawal_locks: LookupSet::new(StorageKey::WithdrawalLocks),
             owner_id: owner_id.clone(),
             wnear_id,
-            treasury_id: treasury_id.clone(),
+            treasury_id,
             validator_public_key,
             statistics: PoolStatistics {
                 latest_total_balance,
@@ -139,13 +138,9 @@ impl LiquidStakingToken {
         let mut acl = self.acl_get_or_init();
         acl.add_super_admin_unchecked(admin_account_id);
 
-        acl.add_admin_unchecked(Role::Admin, admin_account_id);
-        acl.add_admin_unchecked(Role::PauseManager, admin_account_id);
-        acl.add_admin_unchecked(Role::UnpauseManager, admin_account_id);
-
-        acl.grant_role_unchecked(Role::Admin, admin_account_id);
-
-        acl.grant_role_unchecked(Role::PauseManager, admin_account_id);
-        acl.grant_role_unchecked(Role::UnpauseManager, admin_account_id);
+        for role in [Role::Admin, Role::PauseManager, Role::UnpauseManager] {
+            acl.add_admin_unchecked(role, admin_account_id);
+            acl.grant_role_unchecked(role, admin_account_id);
+        }
     }
 }

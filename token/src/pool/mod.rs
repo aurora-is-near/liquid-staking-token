@@ -23,8 +23,6 @@ const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
 const ON_PING_RESTAKE_GAS: Gas = Gas::from_tgas(20);
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
-type LstToken = NearToken;
-
 #[near(serializers = [json])]
 pub struct Ratio {
     numerator: U128,
@@ -89,7 +87,9 @@ impl LiquidStakingToken {
         self.statistics.total_pending_withdrawals
     }
 
-    /// Returns the total NEAR balance of the pool, including locked balance.
+    /// Last reading of `account_locked_balance + account_balance`, refreshed
+    /// by reward syncs and balance-affecting calls. Not a live read of the
+    /// account's NEAR balance.
     pub const fn get_total_balance(&self) -> NearToken {
         self.statistics.latest_total_balance
     }
@@ -99,7 +99,7 @@ impl LiquidStakingToken {
         &mut self,
         account_id: &AccountId,
         total_staked_tokens: NearToken,
-        lst_tokens: LstToken,
+        lst_tokens: NearToken,
         is_stake: bool,
     ) {
         self.statistics.total_staked_amount = total_staked_tokens;
@@ -111,10 +111,11 @@ impl LiquidStakingToken {
         }
     }
 
-    /// Publicly callable rewards sync. Reads the contract's `locked` balance
-    /// and, when it exceeds the tracked active stake plus pending unstakes,
-    /// treats the excess as newly accrued validator rewards that get added to
-    /// the LST's backing NEAR (lifting the exchange rate).
+    /// Publicly callable rewards sync. Reads `account_locked_balance +
+    /// account_balance` and, when it exceeds `latest_total_balance` (the last
+    /// recorded total), treats the excess as newly accrued validator rewards
+    /// that get added to the LST's backing NEAR (lifting the exchange rate)
+    /// and minted as the configured protocol fee to the treasury.
     #[pause]
     pub fn ping(&mut self) -> PromiseOrValue<U128> {
         if self.sync_rewards_internal(None).is_zero() {
@@ -210,33 +211,30 @@ impl LiquidStakingToken {
     }
 
     /// Converts a NEAR amount into the LST mint amount at the current exchange
-    /// rate. Uses a 1:1 ratio while no LST has been minted yet.
-    pub(crate) fn near_to_lst(&self, near_tokens: NearToken) -> LstToken {
-        let total_shared = self.token.total_supply;
+    /// rate. Uses a 1:1 ratio while no LST has been minted yet (or when the
+    /// pool has no backing stake — bootstrap case).
+    pub(crate) fn near_to_lst(&self, near_tokens: NearToken) -> NearToken {
+        let total_lst = self.token.total_supply;
         let total_staked = self.statistics.total_staked_amount.as_yoctonear();
-        let yocto_amount = near_tokens.as_yoctonear();
+        let yocto = near_tokens.as_yoctonear();
 
-        let yocto = if total_shared == 0 || total_staked == 0 {
-            yocto_amount
-        } else {
-            mul_div_floor(yocto_amount, total_shared, total_staked)
-        };
-
-        LstToken::from_yoctonear(yocto)
+        if total_lst == 0 || total_staked == 0 {
+            return NearToken::from_yoctonear(yocto);
+        }
+        NearToken::from_yoctonear(mul_div_floor(yocto, total_lst, total_staked))
     }
 
     /// Converts an LST amount into its NEAR equivalent at the current exchange
     /// rate. Returns zero when no LST has been minted yet.
-    pub(crate) fn lst_to_near(&self, lst_tokens: LstToken) -> NearToken {
-        let total_shared = self.token.total_supply;
+    pub(crate) fn lst_to_near(&self, lst_tokens: NearToken) -> NearToken {
+        let total_lst = self.token.total_supply;
         let total_staked = self.statistics.total_staked_amount.as_yoctonear();
-        let yocto_amount = lst_tokens.as_yoctonear();
+        let yocto = lst_tokens.as_yoctonear();
 
-        if total_shared == 0 {
+        if total_lst == 0 {
             return NearToken::ZERO;
         }
-
-        NearToken::from_yoctonear(mul_div_floor(yocto_amount, total_staked, total_shared))
+        NearToken::from_yoctonear(mul_div_floor(yocto, total_staked, total_lst))
     }
 
     /// Calculates the protocol fee. Returns a reward without fee and fee itself.
@@ -274,20 +272,21 @@ fn calculate_min_gas(min_gas: Option<Gas>, is_call: bool) -> Gas {
 #[inline]
 #[must_use]
 pub(crate) fn mul_div_floor(a: u128, b: u128, c: u128) -> u128 {
+    use ruint::aliases::U256;
     require!(c > 0, "Division by zero in mul_div_floor");
 
     if let Some(product) = a.checked_mul(b) {
         return product / c;
     }
 
-    let a_u256: ruint::aliases::U256 = ruint::Uint::from(a);
-    let b_u256: ruint::aliases::U256 = ruint::Uint::from(b);
-    let c_u256: ruint::aliases::U256 = ruint::Uint::from(c);
+    // The product overflowed `u128`; promote to `U256`. Any `u128 * u128`
+    // fits in `U256`, and the divisor is non-zero (checked above), so the
+    // multiplication and division here cannot panic. The only failure mode
+    // is the final downcast back to `u128`.
+    let result = U256::from(a) * U256::from(b) / U256::from(c);
 
-    a_u256
-        .checked_mul(b_u256)
-        .and_then(|prod| prod.checked_div(c_u256))
-        .and_then(|result| result.to_u128())
+    result
+        .to_u128()
         .unwrap_or_else(|| env::panic_str("Overflow in mul_div_floor"))
 }
 
