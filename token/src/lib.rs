@@ -119,7 +119,7 @@ impl LiquidStakingToken {
         };
 
         if init_locked_balance > NearToken::ZERO {
-            contract.mint_lst_to_treasury(&treasury_id, init_locked_balance);
+            contract.treasury_deposit(init_locked_balance);
         }
 
         contract.grant_roles(&owner_id);
@@ -147,11 +147,5 @@ impl LiquidStakingToken {
 
         acl.grant_role_unchecked(Role::PauseManager, admin_account_id);
         acl.grant_role_unchecked(Role::UnpauseManager, admin_account_id);
-    }
-
-    fn mint_lst_to_treasury(&mut self, treasury_id: &AccountId, init_lock: NearToken) {
-        self.token
-            .internal_deposit(treasury_id, init_lock.as_yoctonear());
-        self.statistics.increase_delegators();
     }
 }

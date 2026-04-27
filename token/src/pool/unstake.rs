@@ -70,7 +70,8 @@ impl LiquidStakingToken {
 
             user_distribution.withdrawal_amount = user_distribution
                 .withdrawal_amount
-                .saturating_add(near_amount);
+                .checked_add(near_amount)
+                .unwrap_or_else(|| env::panic_str("Overflow while increasing withdrawal amount"));
             // It's done intentionally. Each subsequent unstaking shifts the withdrawal epoch_id by 4 epochs.
             user_distribution.unstake_epoch = epoch_id;
 

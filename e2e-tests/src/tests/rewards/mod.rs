@@ -179,7 +179,6 @@ fn lst_to_near(lst_amount: NearToken, exchange_rate: f64) -> NearToken {
     )
 }
 
-#[allow(dead_code)]
 fn compute_reward(epoch_duration: u128) -> NearToken {
     use num_traits::cast::ToPrimitive;
     let num_seconds_per_year = 60 * 60 * 24 * 365;

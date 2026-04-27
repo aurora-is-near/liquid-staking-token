@@ -30,7 +30,7 @@ This liquid staking solution allows NEAR token holders to:
 ## How It Works
 
 1. **Staking**: Users stake NEAR (native or wNEAR) and receive LST tokens at the current exchange rate
-   (1:1 only when no rewards have been synced yet; afterwards each LST is worth strictly more than 1 NEAR)
+   (1:1 only when no rewards have been synced yet; afterward each LST is worth strictly more than 1 NEAR)
 2. **Validator delegation**: The contract stakes all NEAR with a pre-configured validator
 3. **Reward syncing**: Anyone may call `ping` (or it runs implicitly on each stake/unstake) to fold the
    validator's accrued rewards into the contract's tracked balance, lifting the LST/NEAR exchange rate
@@ -101,13 +101,13 @@ near contract call-function as-transaction <CONTRACT_ID> new \
 
 ### Parameters
 
-| Parameter              | Type                    | Required | Description                                                                                                                                |
-|------------------------|-------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `owner_id`             | `AccountId`             | Yes      | Account that receives all admin/pause/unpause roles.                                                                                       |
-| `wnear_id`             | `AccountId`             | Yes      | Address of the wNEAR (wrapped NEAR) contract used for wNEAR-based staking and withdrawal.                                                  |
-| `treasury_id`          | `AccountId`             | Yes      | Account that receives the protocol fee, minted as LST on every reward sync. May equal `owner_id` or any other account.                     |
-| `validator_public_key` | `PublicKey`             | Yes      | Ed25519 public key of the validator node. The contract stakes its locked balance to this key.                                              |
-| `metadata`             | `FungibleTokenMetadata` | Yes      | Standard NEP-148 metadata (`spec`, `name`, `symbol`, `decimals`, optional `icon` / `reference` / `reference_hash`).                        |
+| Parameter              | Type                    | Required | Description                                                                                                            |
+|------------------------|-------------------------|----------|------------------------------------------------------------------------------------------------------------------------|
+| `owner_id`             | `AccountId`             | Yes      | Account that receives all admin/pause/unpause roles.                                                                   |
+| `wnear_id`             | `AccountId`             | Yes      | Address of the wNEAR (wrapped NEAR) contract used for wNEAR-based staking and withdrawal.                              |
+| `treasury_id`          | `AccountId`             | Yes      | Account that receives the protocol fee, minted as LST on every reward sync. May equal `owner_id` or any other account. |
+| `validator_public_key` | `PublicKey`             | Yes      | Ed25519 public key of the validator node. The contract stakes its locked balance to this key.                          |
+| `metadata`             | `FungibleTokenMetadata` | Yes      | Standard NEP-148 metadata (`spec`, `name`, `symbol`, `decimals`, optional `icon` / `reference` / `reference_hash`).    |
 
 > The contract panics if called a second time (`"Already initialized"`).
 
@@ -193,13 +193,13 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 }
 ```
 
-| Field             | Type                           | Required | Description                                                                                                                                                                                                                                              |
-|-------------------|--------------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `receiver_id`     | `AccountId`                    | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                         |
-| `storage_deposit` | `NearToken` (yoctoNEAR string) | No       | If set, this amount is deducted from the staked NEAR and used to call `storage_deposit` on the LST contract for `receiver_id`, registering the account before the token transfer. Required when `receiver_id` is not yet registered on the LST contract. |
-| `msg`             | `String`                       | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract). |
-| `memo`            | `String`                       | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                               |
-| `min_gas`         | `Gas` (u64)                    | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                            |
+| Field             | Type                           | Required | Description                                                                                                                                                                                                                                                                                                                              |
+|-------------------|--------------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `receiver_id`     | `AccountId`                    | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                                                                                                         |
+| `storage_deposit` | `NearToken` (yoctoNEAR string) | No       | If set, this amount is deducted from the staked NEAR and used to call `storage_deposit` on the LST contract for `receiver_id`, registering the account before the token transfer. Required when `receiver_id` is not yet registered on the LST contract.                                                                                 |
+| `msg`             | `String`                       | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                 |
+| `memo`            | `String`                       | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                               |
+| `min_gas`         | `Gas` (u64)                    | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                            |
 | `refund_message`  | `UnstakeMessage`               | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery. |
 
 **Token amount minted.** The amount of LST minted is `stake_amount * total_lst_supply / total_staked_amount`, floored
@@ -377,17 +377,17 @@ near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
 
 ### View methods
 
-| Method                            | Returns                                    | Notes                                                            |
-|-----------------------------------|--------------------------------------------|------------------------------------------------------------------|
-| `get_exchange_rate`               | `{ numerator, denominator }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync.  |
-| `get_reward_fee_fraction`         | `{ numerator, denominator }` (bps / 10000) | Currently configured protocol fee.                               |
-| `get_total_staked_balance`        | `NearToken`                                | Tracked NEAR backing the LST supply.                             |
-| `get_total_pending_withdrawals`   | `NearToken`                                | Sum of NEAR amounts queued for withdrawal.                       |
-| `get_total_balance`               | `NearToken`                                | Last-recorded `locked + unlocked` NEAR (updated by reward sync). |
-| `get_number_of_accounts`          | `u64`                                      | Number of LST holders.                                           |
-| `get_owner_id` / `get_treasury_id`| `AccountId`                                | Configured roles.                                                |
-| `get_staking_key`                 | `PublicKey`                                | Validator key the contract delegates to.                         |
-| `get_version`                     | `&'static str`                             | Crate version baked in at build time.                            |
+| Method                             | Returns                                    | Notes                                                           |
+|------------------------------------|--------------------------------------------|-----------------------------------------------------------------|
+| `get_exchange_rate`                | `{ numerator, denominator }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync. |
+| `get_reward_fee_fraction`          | `{ numerator, denominator }` (bps / 10000) | Currently configured protocol fee.                              |
+| `get_total_staked_balance`         | `NearToken`                                | Tracked NEAR backing the LST supply.                            |
+| `get_total_pending_withdrawals`    | `NearToken`                                | Sum of NEAR amounts queued for withdrawal.                      |
+| `get_total_balance`                | `NearToken`                                | Last-recorded `locked + unlocked` balance in NEAR.              |
+| `get_number_of_accounts`           | `u64`                                      | Number of LST holders.                                          |
+| `get_owner_id` / `get_treasury_id` | `AccountId`                                | Configured roles.                                               |
+| `get_staking_key`                  | `PublicKey`                                | Validator key the contract delegates to.                        |
+| `get_version`                      | `&'static str`                             | Crate version baked in at build time.                           |
 
 ---
 
@@ -473,7 +473,8 @@ near contract call-function as-transaction <CONTRACT_ID> add_full_access_key \
 
 ### Native NEAR → intents contract → partial refund recovery
 
-When staking into a DeFi protocol via `msg`, provide `refund_message` to handle the case where the protocol rejects or partially consumes the LST tokens.
+When staking into a DeFi protocol via `msg`, provide `refund_message` to handle the case where the protocol rejects or
+partially consumes the LST tokens.
 
 ```text
 1. alice calls stake({

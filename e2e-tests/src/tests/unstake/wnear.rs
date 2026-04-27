@@ -248,17 +248,32 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;
 
+    env.lst.ping().await?;
+
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE
+            .saturating_add(STAKE_AMOUNT)
+            .saturating_add(ONE_YOCTO)
+    );
+    assert_eq!(
+        env.lst.get_total_staked_balance().await?,
+        INIT_LOCK.saturating_add(ONE_YOCTO)
+    );
 
     env.wait_unstake_cooldown().await?;
 
-    let lst_balance = env.lst.near_balance().await?;
-    assert_eq!(lst_balance.locked.as_near(), INIT_LOCK.as_near());
-
     env.lst.withdraw(alice, &unstake_message).await?;
 
-    let wnear_intents_balance = env.wnear.ft_balance_of(env.intents.id()).await?;
-    assert_eq!(wnear_intents_balance, STAKE_AMOUNT);
+    assert_eq!(
+        env.wnear.ft_balance_of(env.intents.id()).await?,
+        STAKE_AMOUNT
+    );
+    assert_eq!(
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(ONE_YOCTO)
+    );
 
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
