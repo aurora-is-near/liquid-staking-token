@@ -30,7 +30,10 @@ async fn test_stake_with_native_near_and_get_on_intents() -> TestResult {
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, STAKE_AMOUNT);
-    assert_eq!(env.lst.ft_total_supply().await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
 
     let staked_tokens = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(staked_tokens, STAKE_AMOUNT);
@@ -66,7 +69,10 @@ async fn test_stake_with_native_near_and_attempt_to_send_on_intents_with_bad_acc
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, STAKE_AMOUNT); // Tokens stuck on the contract balance
-    assert_eq!(env.lst.ft_total_supply().await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
 
     assert_eq!(
         env.intents.mt_balance_of(alice.id(), env.lst.id()).await?,
@@ -110,7 +116,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     assert_eq!(
         env.intents.mt_balance_of(alice.id(), env.lst.id()).await?,
@@ -147,10 +153,11 @@ async fn test_stake_with_native_near_and_get_on_intents_bob() -> TestResult {
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_balance = env.lst.ft_balance_of(env.intents.id()).await?;
-    assert_eq!(intents_balance, STAKE_AMOUNT);
-    let total_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_supply, STAKE_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
 
     let alice_intents_balance = env.intents.mt_balance_of(alice.id(), env.lst.id()).await?;
     assert_eq!(alice_intents_balance, ZERO_AMOUNT);
@@ -187,10 +194,11 @@ async fn test_stake_with_native_near_and_get_on_nep141() -> TestResult {
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
-    assert_eq!(intents_lst_balance, ZERO_AMOUNT);
-    let total_lst_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_lst_supply, STAKE_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
 
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, STAKE_AMOUNT);
@@ -224,10 +232,11 @@ async fn test_stake_with_native_near_and_get_on_nep141_to_bob() -> TestResult {
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
-    assert_eq!(intents_lst_balance, ZERO_AMOUNT);
-    let total_lst_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_lst_supply, STAKE_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
 
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, ZERO_AMOUNT);
@@ -265,10 +274,8 @@ async fn test_stake_with_native_near_and_get_on_nep141_without_registration() ->
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK);
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
-    assert_eq!(intents_lst_balance, ZERO_AMOUNT);
-    let total_lst_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_lst_supply, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
     assert_eq!(alice_lst_balance, ZERO_AMOUNT);
@@ -296,13 +303,12 @@ async fn test_stake_with_native_near_and_get_on_nep141_with_registration() -> Te
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
 
-    let intents_lst_balance = env.lst.ft_balance_of(env.intents.id()).await?;
-    assert_eq!(intents_lst_balance, ZERO_AMOUNT);
-    let total_lst_supply = env.lst.ft_total_supply().await?;
-    assert_eq!(total_lst_supply, STAKE_AMOUNT);
-
-    let alice_lst_balance = env.lst.ft_balance_of(alice.id()).await?;
-    assert_eq!(alice_lst_balance, STAKE_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
 
     let alice_native_balance_after = alice.near_balance().await?;
     assert_eq!(
@@ -340,7 +346,7 @@ async fn test_stake_with_storage_deposit_exceeding_amount_fails() -> TestResult 
     );
 
     // No tokens minted, locked balance unchanged.
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
 
     Ok(())
@@ -361,8 +367,8 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         )
         .await?;
 
-    // No tokens minted, locked balance unchanged.
-    assert_eq!(env.lst.ft_total_supply().await?, ZERO_AMOUNT);
+    // No tokens minted, total supply unchanged.
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(
         env.lst.near_balance().await?.locked,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)

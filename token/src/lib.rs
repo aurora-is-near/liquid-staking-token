@@ -3,11 +3,13 @@ use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_plugins::{AccessControlRole, AccessControllable, Pausable, Upgradable, access_control};
 use near_sdk::borsh::BorshDeserialize;
 use near_sdk::borsh::BorshSerialize;
-use near_sdk::store::LookupMap;
+use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{
     AccountId, BorshStorageKey, CryptoHash, NearToken, PanicOnDefault, PublicKey, env, near,
     require,
 };
+
+use crate::pool::{PoolStatistics, UserDistribution};
 
 mod core;
 mod metadata;
@@ -17,6 +19,7 @@ mod resolver;
 mod storage;
 mod traits;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 
 #[derive(BorshSerialize, BorshStorageKey)]
@@ -24,13 +27,13 @@ pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 enum StorageKey {
     FungibleToken,
     UnstakeQueue,
+    WithdrawalLocks,
 }
 
 #[derive(AccessControlRole, Clone, Copy)]
 #[near(serializers = [json])]
 enum Role {
     Admin,
-    SignatureVerifier,
     PauseManager,
     UnpauseManager,
 }
@@ -50,13 +53,24 @@ enum Role {
 )]
 #[near(contract_state)]
 pub struct LiquidStakingToken {
+    /// The underlying fungible token represented LST token.
     token: FungibleToken,
+    /// The metadata of the LST token.
     metadata: FungibleTokenMetadata,
-    unstake_queue: LookupMap<CryptoHash, (u128, u64)>,
+    /// The queue for unstake requests.
+    unstake_queue: LookupMap<CryptoHash, UserDistribution>,
+    /// Withdrawal locks.
+    withdrawal_locks: LookupSet<CryptoHash>,
+    /// The ID of the account that owns the contract.
     owner_id: AccountId,
+    /// The ID of the account that holds wNEAR.
     wnear_id: AccountId,
+    /// The ID of the account that holds treasury.
+    treasury_id: AccountId,
+    /// The public key of the validator.
     validator_public_key: PublicKey,
-    total_staked_amount: NearToken,
+    /// The pool statistics.
+    statistics: PoolStatistics,
 }
 
 #[near]
@@ -67,28 +81,55 @@ impl LiquidStakingToken {
     pub fn new(
         owner_id: AccountId,
         wnear_id: AccountId,
+        treasury_id: AccountId,
         validator_public_key: PublicKey,
         metadata: FungibleTokenMetadata,
-        init_lock: Option<NearToken>, // The parameter mostly is used for tests since single node couldn't have 0 locked balances.
     ) -> Self {
         require!(!env::state_exists(), "Already initialized");
         metadata.assert_valid();
 
         let mut token = FungibleToken::new(StorageKey::FungibleToken);
+
         token.internal_register_account(&env::current_account_id());
+
+        if env::current_account_id() != treasury_id {
+            token.internal_register_account(&treasury_id);
+        }
+
+        let init_locked_balance = env::account_locked_balance();
+        let latest_total_balance = init_locked_balance
+            .checked_add(env::account_balance())
+            .unwrap_or_else(|| env::panic_str("Overflow while calculating total balance"));
 
         let mut contract = Self {
             token,
             metadata,
             unstake_queue: LookupMap::new(StorageKey::UnstakeQueue),
+            withdrawal_locks: LookupSet::new(StorageKey::WithdrawalLocks),
             owner_id: owner_id.clone(),
             wnear_id,
+            treasury_id,
             validator_public_key,
-            total_staked_amount: init_lock.unwrap_or(NearToken::ZERO),
+            statistics: PoolStatistics {
+                latest_total_balance,
+                total_staked_amount: init_locked_balance,
+                ..Default::default()
+            },
         };
 
+        if init_locked_balance > NearToken::ZERO {
+            contract.treasury_deposit(init_locked_balance);
+        }
+
         contract.grant_roles(&owner_id);
+
         contract
+    }
+
+    /// Return the version of the contract.
+    #[must_use]
+    pub const fn get_version() -> &'static str {
+        VERSION
     }
 }
 
@@ -97,13 +138,9 @@ impl LiquidStakingToken {
         let mut acl = self.acl_get_or_init();
         acl.add_super_admin_unchecked(admin_account_id);
 
-        acl.add_admin_unchecked(Role::Admin, admin_account_id);
-        acl.add_admin_unchecked(Role::PauseManager, admin_account_id);
-        acl.add_admin_unchecked(Role::UnpauseManager, admin_account_id);
-
-        acl.grant_role_unchecked(Role::Admin, admin_account_id);
-
-        acl.grant_role_unchecked(Role::PauseManager, admin_account_id);
-        acl.grant_role_unchecked(Role::UnpauseManager, admin_account_id);
+        for role in [Role::Admin, Role::PauseManager, Role::UnpauseManager] {
+            acl.add_admin_unchecked(role, admin_account_id);
+            acl.grant_role_unchecked(role, admin_account_id);
+        }
     }
 }

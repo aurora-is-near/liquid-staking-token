@@ -1,57 +1,260 @@
-use near_sdk::{AccountId, Gas, NearToken, PublicKey, near};
+use near_plugins::{Pausable, pause};
+use near_sdk::json_types::U128;
+use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, PublicKey, env, near, require};
+use num_traits::ToPrimitive;
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 pub use stake::StakeMessage;
+pub use stats::PoolStatistics;
 pub use unstake::{UnstakeMessage, WithdrawTokens};
+pub use withdraw::UserDistribution;
 
+mod admin;
 mod stake;
+mod stats;
 mod unstake;
 mod withdraw;
 
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
-const MODIFY_STAKED_AMOUNT_GAS: Gas = Gas::from_tgas(1);
+const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
 const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
+const ON_PING_RESTAKE_GAS: Gas = Gas::from_tgas(20);
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
+
+#[near(serializers = [json])]
+pub struct Ratio {
+    numerator: U128,
+    denominator: U128,
+}
 
 #[near]
 impl LiquidStakingToken {
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn get_number_of_accounts(&self) -> u64 {
-        1
+    /// Returns the number of delegators in the pool.
+    pub const fn get_number_of_accounts(&self) -> u64 {
+        self.statistics.num_delegators
     }
 
-    pub fn get_reward_fee_fraction(&self) -> near_sdk::serde_json::Value {
-        near_sdk::serde_json::json!({ "numerator": 1, "denominator": 10 })
+    /// Returns the current exchange rate of LST to NEAR.
+    pub const fn get_exchange_rate(&self) -> Ratio {
+        let total_staked = self.statistics.total_staked_amount.as_yoctonear();
+        let total_lst_supply = self.token.total_supply;
+
+        let (numerator, denominator) = if total_lst_supply == 0 {
+            (1, 1)
+        } else {
+            (total_staked, total_lst_supply)
+        };
+
+        Ratio {
+            numerator: U128(numerator),
+            denominator: U128(denominator),
+        }
     }
 
+    /// Returns the protocol fee fraction as a ratio.
+    pub fn get_reward_fee_fraction(&self) -> Ratio {
+        Ratio {
+            numerator: U128(self.statistics.protocol_fee_bps.into()),
+            denominator: U128(stats::BPS_DENOMINATOR.into()),
+        }
+    }
+
+    /// Returns the public key of the validator that is currently staking.
     pub fn get_staking_key(&self) -> PublicKey {
         self.validator_public_key.clone()
     }
 
+    /// Returns the account ID of the contract owner.
     pub fn get_owner_id(&self) -> AccountId {
         self.owner_id.clone()
     }
 
+    /// Returns the treasury account ID.
+    pub fn get_treasury_id(&self) -> AccountId {
+        self.treasury_id.clone()
+    }
+
+    /// Returns the total NEAR currently backing the LST supply. Grows as
+    /// staking rewards are synced.
+    pub const fn get_total_staked_balance(&self) -> NearToken {
+        self.statistics.total_staked_amount
+    }
+
+    /// Returns the sum of NEAR amounts queued for withdrawals.
+    pub const fn get_total_pending_withdrawals(&self) -> NearToken {
+        self.statistics.total_pending_withdrawals
+    }
+
+    /// Last reading of `account_locked_balance + account_balance`, refreshed
+    /// by reward syncs and balance-affecting calls. Not a live read of the
+    /// account's NEAR balance.
+    pub const fn get_total_balance(&self) -> NearToken {
+        self.statistics.latest_total_balance
+    }
+
     #[private]
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn modify_total_staked_amount(
+    pub fn modify_state_after_stake(
         &mut self,
         account_id: &AccountId,
-        total_staked_amount: NearToken,
-        shared_tokens: NearToken,
+        total_staked_tokens: NearToken,
+        lst_tokens: NearToken,
         is_stake: bool,
     ) {
-        self.total_staked_amount = total_staked_amount;
+        self.statistics.total_staked_amount = total_staked_tokens;
 
         if is_stake {
-            self.token
-                .internal_deposit(account_id, shared_tokens.as_yoctonear());
+            self.internal_deposit(account_id, lst_tokens);
         } else {
-            self.token
-                .internal_withdraw(account_id, shared_tokens.as_yoctonear());
+            self.internal_withdraw(account_id, lst_tokens);
         }
+    }
+
+    /// Publicly callable rewards sync. Reads `account_locked_balance +
+    /// account_balance` and, when it exceeds `latest_total_balance` (the last
+    /// recorded total), treats the excess as newly accrued validator rewards
+    /// that get added to the LST's backing NEAR (lifting the exchange rate)
+    /// and minted as the configured protocol fee to the treasury.
+    #[pause]
+    pub fn ping(&mut self) -> PromiseOrValue<U128> {
+        if self.sync_rewards_internal(None).is_zero() {
+            return PromiseOrValue::Value(U128(0));
+        }
+
+        near_sdk::log!("Rewards synced");
+
+        Promise::new(env::current_account_id())
+            .stake(
+                self.statistics.total_staked_amount,
+                self.validator_public_key.clone(),
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .with_static_gas(ON_PING_RESTAKE_GAS)
+                    .on_ping_restake(),
+            )
+            .into()
+    }
+
+    #[private]
+    pub fn on_ping_restake(
+        &self,
+        #[callback_result] result: Result<(), near_sdk::PromiseError>,
+    ) -> PromiseOrValue<bool> {
+        if result.is_err() && env::account_locked_balance() > NearToken::ZERO {
+            near_sdk::log!(
+                "Restake failed; unstaking {} yoctoNEAR. Admin recovery required",
+                env::account_locked_balance().as_yoctonear()
+            );
+
+            Promise::new(env::current_account_id())
+                .stake(NearToken::ZERO, self.validator_public_key.clone())
+                .into()
+        } else {
+            PromiseOrValue::Value(true)
+        }
+    }
+}
+
+impl LiquidStakingToken {
+    /// Implementation of [`Self::sync_rewards`] usable from internal call sites.
+    pub(crate) fn sync_rewards_internal(
+        &mut self,
+        amount_to_exclude: Option<NearToken>,
+    ) -> NearToken {
+        let current_epoch = env::epoch_height();
+
+        if current_epoch == self.statistics.last_epoch_synced {
+            return NearToken::ZERO;
+        }
+
+        let current_total_balance = env::account_locked_balance()
+            .checked_add(env::account_balance())
+            .and_then(|balance| balance.checked_sub(amount_to_exclude.unwrap_or_default()))
+            .unwrap_or_else(|| env::panic_str("Overflow while calculating actual total balance"));
+
+        let latest_total_balance = self.statistics.latest_total_balance;
+
+        require!(
+            current_total_balance >= latest_total_balance,
+            "The new total balance should not be less than the old total balance",
+        );
+
+        let total_reward = current_total_balance.saturating_sub(latest_total_balance);
+
+        if total_reward.is_zero() {
+            return NearToken::ZERO;
+        }
+
+        let (users_reward, fee_near) = self.split_protocol_fee(total_reward);
+
+        self.statistics.increase_stake_amount(users_reward);
+
+        let fee_lst = self.near_to_lst(fee_near);
+        self.treasury_deposit(fee_lst);
+
+        self.statistics.increase_stake_amount(fee_near);
+
+        near_sdk::log!(
+            "Rewards synced, rewards +{}, protocol fee: +{}, (new total staked amount: {})",
+            total_reward.as_yoctonear(),
+            fee_near.as_yoctonear(),
+            self.statistics.total_staked_amount.as_yoctonear(),
+        );
+
+        self.statistics.last_epoch_synced = current_epoch;
+        self.statistics.latest_total_balance = current_total_balance;
+
+        total_reward
+    }
+
+    /// Converts a NEAR amount into the LST mint amount at the current exchange
+    /// rate. Uses a 1:1 ratio while no LST has been minted yet (or when the
+    /// pool has no backing stake — bootstrap case).
+    pub(crate) fn near_to_lst(&self, near_tokens: NearToken) -> NearToken {
+        let total_lst = self.token.total_supply;
+        let total_staked = self.statistics.total_staked_amount.as_yoctonear();
+        let yocto = near_tokens.as_yoctonear();
+
+        if total_lst == 0 || total_staked == 0 {
+            return NearToken::from_yoctonear(yocto);
+        }
+        NearToken::from_yoctonear(mul_div_floor(yocto, total_lst, total_staked))
+    }
+
+    /// Converts an LST amount into its NEAR equivalent at the current exchange
+    /// rate. Returns zero when no LST has been minted yet.
+    pub(crate) fn lst_to_near(&self, lst_tokens: NearToken) -> NearToken {
+        let total_lst = self.token.total_supply;
+        let total_staked = self.statistics.total_staked_amount.as_yoctonear();
+        let yocto = lst_tokens.as_yoctonear();
+
+        if total_lst == 0 {
+            return NearToken::ZERO;
+        }
+        NearToken::from_yoctonear(mul_div_floor(yocto, total_staked, total_lst))
+    }
+
+    /// Calculates the protocol fee. Returns a reward without fee and fee itself.
+    pub(crate) fn split_protocol_fee(&self, amount: NearToken) -> (NearToken, NearToken) {
+        if self.statistics.protocol_fee_bps == 0 {
+            return (amount, NearToken::ZERO);
+        }
+
+        let fee_yocto = mul_div_floor(
+            amount.as_yoctonear(),
+            u128::from(self.statistics.protocol_fee_bps),
+            u128::from(stats::BPS_DENOMINATOR),
+        );
+
+        let fee = NearToken::from_yoctonear(fee_yocto);
+        let net = amount
+            .checked_sub(fee)
+            .unwrap_or_else(|| env::panic_str("Protocol fee exceeds the reward amount"));
+
+        (net, fee)
     }
 }
 
@@ -64,4 +267,64 @@ fn calculate_min_gas(min_gas: Option<Gas>, is_call: bool) -> Gas {
     };
 
     min_gas.unwrap_or(min).max(min)
+}
+
+#[inline]
+#[must_use]
+pub(crate) fn mul_div_floor(a: u128, b: u128, c: u128) -> u128 {
+    use ruint::aliases::U256;
+    require!(c > 0, "Division by zero in mul_div_floor");
+
+    if let Some(product) = a.checked_mul(b) {
+        return product / c;
+    }
+
+    // The product overflowed `u128`; promote to `U256`. Any `u128 * u128`
+    // fits in `U256`, and the divisor is non-zero (checked above), so the
+    // multiplication and division here cannot panic. The only failure mode
+    // is the final downcast back to `u128`.
+    let result = U256::from(a) * U256::from(b) / U256::from(c);
+
+    result
+        .to_u128()
+        .unwrap_or_else(|| env::panic_str("Overflow in mul_div_floor"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mul_div_floor;
+
+    #[test]
+    fn basic() {
+        // 5 * 5 / 4 = 6.25, but we want to round down to 6
+        assert_eq!(mul_div_floor(5, 5, 4), 6);
+        // 9 * 3 / 4 = 6.75, but we want to round down to 6
+        assert_eq!(mul_div_floor(9, 3, 4), 6);
+        assert_eq!(mul_div_floor(0, 123, 7), 0);
+        assert_eq!(mul_div_floor(7, 0, 3), 0);
+    }
+
+    #[test]
+    fn basic_with_u256() {
+        assert_eq!(mul_div_floor(u128::MAX, u128::MAX, u128::MAX), u128::MAX);
+    }
+
+    #[test]
+    fn reward_bearing_growth() {
+        // Supply 100, staked 110 (10% rewards). Staking 10 NEAR should mint ~9.09 LST.
+        let mint = mul_div_floor(10, 100, 110);
+        assert_eq!(mint, 9);
+    }
+
+    #[test]
+    #[should_panic(expected = "Division by zero")]
+    fn div_by_zero() {
+        let _ = mul_div_floor(1, 1, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Overflow in mul_div_floor")]
+    fn quotient_overflow() {
+        let _ = mul_div_floor(u128::MAX, u128::MAX, 1);
+    }
 }

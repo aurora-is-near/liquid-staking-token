@@ -37,6 +37,12 @@ container_build_command = [
 near-sdk.workspace = true
 near-contract-standards.workspace = true
 near-plugins.workspace = true
+num-traits.workspace = true
+ruint = { workspace = true, features = ["num-traits"] }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+
 
 [lints]
 workspace = true

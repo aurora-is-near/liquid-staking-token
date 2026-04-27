@@ -1,3 +1,4 @@
+use liquid_staking_token::ONE_YOCTO;
 use near_api::types::json::U128;
 use near_api::types::transaction::result::ExecutionSuccess;
 use near_api::{AccountId, Data, NearToken, Tokens};
@@ -10,6 +11,12 @@ pub const FT_STORAGE_DEPOSIT: NearToken = NearToken::from_micronear(1250);
 pub trait FungibleToken {
     async fn ft_balance_of(&self, account_id: &AccountId) -> anyhow::Result<NearToken>;
     async fn ft_total_supply(&self) -> anyhow::Result<NearToken>;
+    async fn ft_transfer(
+        &self,
+        sender: &Account,
+        receiver_id: &AccountId,
+        amount: NearToken,
+    ) -> anyhow::Result<ExecutionSuccess>;
     async fn ft_transfer_call(
         &self,
         sender: &Account,
@@ -24,7 +31,21 @@ pub trait FungibleToken {
         amount: NearToken,
         msg: impl ToString,
     ) -> anyhow::Result<ExecutionSuccess>;
-    async fn ft_storage_deposit(&self, account_id: &AccountId) -> anyhow::Result<()>;
+    async fn ft_storage_deposit(
+        &self,
+        signer: &Account,
+        account_id: &AccountId,
+    ) -> anyhow::Result<ExecutionSuccess>;
+    async fn ft_storage_withdraw(
+        &self,
+        signer: &Account,
+        amount: Option<NearToken>,
+    ) -> anyhow::Result<ExecutionSuccess>;
+    async fn ft_storage_unregister(
+        &self,
+        signer: &Account,
+        force: Option<bool>,
+    ) -> anyhow::Result<ExecutionSuccess>;
 }
 
 impl FungibleToken for Contract {
@@ -44,6 +65,30 @@ impl FungibleToken for Contract {
             .fetch_from(self.config())
             .await
             .map(|supply: Data<U128>| NearToken::from_yoctonear(supply.data.0))
+            .map_err(Into::into)
+    }
+
+    async fn ft_transfer(
+        &self,
+        sender: &Account,
+        receiver_id: &AccountId,
+        amount: NearToken,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function(
+                "ft_transfer",
+                json!({
+                    "receiver_id": receiver_id,
+                    "amount": amount,
+                }),
+            )
+            .transaction()
+            .deposit(NearToken::from_yoctonear(1))
+            .max_gas()
+            .with_signer(sender.id().clone(), sender.signer())
+            .send_to(self.config())
+            .await?
+            .into_result()
             .map_err(Into::into)
     }
 
@@ -98,16 +143,58 @@ impl FungibleToken for Contract {
             .map_err(Into::into)
     }
 
-    async fn ft_storage_deposit(&self, account_id: &AccountId) -> anyhow::Result<()> {
+    async fn ft_storage_deposit(
+        &self,
+        signer: &Account,
+        account_id: &AccountId,
+    ) -> anyhow::Result<ExecutionSuccess> {
         self.inner
             .storage_deposit()
             .deposit(account_id.clone(), FT_STORAGE_DEPOSIT)
             .registration_only()
-            .with_signer(self.id().clone(), self.signer())
-            .send_to(self.config())
+            .with_signer(signer.id().clone(), signer.signer())
+            .send_to(signer.config())
             .await?
-            .assert_success();
+            .into_result()
+            .map_err(Into::into)
+    }
 
-        Ok(())
+    async fn ft_storage_withdraw(
+        &self,
+        signer: &Account,
+        amount: Option<NearToken>,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function(
+                "storage_withdraw",
+                json!({
+                    "amount": amount,
+                }),
+            )
+            .transaction()
+            .deposit(ONE_YOCTO)
+            .max_gas()
+            .with_signer(signer.id().clone(), signer.signer())
+            .send_to(signer.config())
+            .await?
+            .into_result()
+            .map_err(Into::into)
+    }
+
+    async fn ft_storage_unregister(
+        &self,
+        signer: &Account,
+        force: Option<bool>,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function("storage_unregister", json!({"force": force}))
+            .transaction()
+            .deposit(ONE_YOCTO)
+            .max_gas()
+            .with_signer(signer.id().clone(), signer.signer())
+            .send_to(signer.config())
+            .await?
+            .into_result()
+            .map_err(Into::into)
     }
 }

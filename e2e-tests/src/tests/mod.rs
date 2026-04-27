@@ -3,8 +3,12 @@ use near_api::NearToken;
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json;
 
+mod delegators;
 mod multi_user;
+mod pool;
+mod rewards;
 mod stake;
+mod storage;
 mod unstake;
 
 const ZERO_AMOUNT: NearToken = NearToken::ZERO;
