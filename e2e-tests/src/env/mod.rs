@@ -33,6 +33,7 @@ pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 pub const BLOCKS_PER_EPOCH: u64 = 50;
 pub const INITIAL_BALANCE: NearToken = NearToken::from_near(1_000_000);
 pub static LST_ARTIFACT: OnceCell<Vec<u8>> = OnceCell::const_new();
+pub static MT_RECEIVER_ARTIFACT: OnceCell<Vec<u8>> = OnceCell::const_new();
 pub static SIGNER: LazyLock<Arc<Signer>> = LazyLock::new(|| {
     Signer::from_secret_key(
         near_sandbox::config::DEFAULT_GENESIS_ACCOUNT_PRIVATE_KEY
@@ -134,6 +135,16 @@ impl Env {
         }
 
         Ok(())
+    }
+
+    pub async fn deploy_mt_receiver(&self) -> anyhow::Result<Contract> {
+        create_contract(
+            &self.config,
+            "test.near",
+            mt_receiver_wasm().await?,
+            serde_json::json!({}),
+        )
+        .await
     }
 
     pub async fn epoch_height(&self, block_height: Option<u64>) -> anyhow::Result<u64> {
@@ -335,6 +346,24 @@ async fn lst_wasm() -> anyhow::Result<Vec<u8>> {
                     .build(),
             )
             .map_err(|e| anyhow::anyhow!("Failed to build LST: {e}"))?;
+            read_wasm(artifact.path).await
+        })
+        .await
+        .cloned()
+}
+
+async fn mt_receiver_wasm() -> anyhow::Result<Vec<u8>> {
+    MT_RECEIVER_ARTIFACT
+        .get_or_try_init(async || {
+            let artifact = cargo_near_build::build(
+                cargo_near_build::BuildOpts::builder()
+                    .manifest_path("test-contracts/mt-receiver/Cargo.toml")
+                    .no_abi(true)
+                    .no_embed_abi(true)
+                    .no_doc(true)
+                    .build(),
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to build MT receiver: {e}"))?;
             read_wasm(artifact.path).await
         })
         .await

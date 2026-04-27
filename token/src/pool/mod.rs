@@ -60,7 +60,7 @@ impl LiquidStakingToken {
     }
 
     /// Returns the protocol fee fraction as a ratio.
-    pub fn get_reward_fee_fraction(&self) -> RatioU16 {
+    pub const fn get_reward_fee_fraction(&self) -> RatioU16 {
         RatioU16 {
             numerator: self.statistics.protocol_fee_bps,
             denominator: stats::BPS_DENOMINATOR,
