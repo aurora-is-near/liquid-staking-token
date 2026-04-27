@@ -18,7 +18,7 @@ mod withdraw;
 
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
-const MODIFY_STAKED_AMOUNT_GAS: Gas = Gas::from_tgas(2);
+const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
 const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 

@@ -32,7 +32,7 @@ impl PoolStatistics {
         self.total_staked_amount = self
             .total_staked_amount
             .checked_sub(amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while removing stake amount"));
+            .unwrap_or_else(|| env::panic_str("Underflow while removing stake amount"));
     }
 
     pub fn increase_total_balance(&mut self, amount: NearToken) {
@@ -46,7 +46,7 @@ impl PoolStatistics {
         self.latest_total_balance = self
             .latest_total_balance
             .checked_sub(amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while removing total balance"));
+            .unwrap_or_else(|| env::panic_str("Underflow while removing total balance"));
     }
 
     pub fn increase_pending_withdrawals(&mut self, amount: NearToken) {
@@ -60,7 +60,7 @@ impl PoolStatistics {
         self.total_pending_withdrawals = self
             .total_pending_withdrawals
             .checked_sub(amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while removing pending withdrawals"));
+            .unwrap_or_else(|| env::panic_str("Underflow while removing pending withdrawals"));
     }
 
     pub fn increase_delegators(&mut self) {

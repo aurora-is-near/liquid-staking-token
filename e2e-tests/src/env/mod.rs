@@ -368,12 +368,9 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
             "epoch_length": BLOCKS_PER_EPOCH,
             "min_gas_price": "0",
             "max_gas_price": "0",
-            "num_block_producer_seats": BLOCKS_PER_EPOCH,
             "protocol_treasury_account": LST,
-            "transaction_validity_period": BLOCKS_PER_EPOCH * 2,
             "total_supply": total_supply,
             "protocol_reward_rate": builder.stake_rewards.unwrap_or([1, 1]), // do not increase balance with rewards to simplify tests
-            // "max_inflation_rate": [1, 40], // default: [1, 40],
         })),
         validators: Some(vec![ValidatorAccount {
             account_id: LST.parse().unwrap(),

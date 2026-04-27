@@ -3,7 +3,7 @@ use near_sdk::{
     AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, env, near, require,
 };
 
-use crate::pool::MODIFY_STAKED_AMOUNT_GAS;
+use crate::pool::MODIFY_STATE_AFTER_STAKE_GAS;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);
@@ -122,7 +122,7 @@ impl LiquidStakingToken {
                 .stake(new_total_staked_amount, self.validator_public_key.clone()),
         )
         .with_unused_gas_weight(0)
-        .with_static_gas(MODIFY_STAKED_AMOUNT_GAS)
+        .with_static_gas(MODIFY_STATE_AFTER_STAKE_GAS)
         .modify_state_after_stake(
             &env::current_account_id(),
             new_total_staked_amount,

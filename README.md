@@ -19,15 +19,25 @@ This liquid staking solution allows NEAR token holders to:
 - **NEP-141 compliant**: LST tokens follow the fungible token standard
 - **Cross-contract integration**: Seamless integration with DeFi protocols via `ft_transfer_call`
 - **Single validator staking**: All staked NEAR is delegated to a single validator for simplicity
+- **Reward-bearing exchange rate**: Validator rewards are folded into the LST/NEAR exchange rate via
+  `ping`; LST holders' NEAR-denominated value grows over time without any per-account claim step
+- **Configurable protocol fee**: A bps fee on each reward sync is minted as LST to a treasury account
+  (capped at 20%, owner-adjustable)
 - **Role-based access control**: Admin, pause, and unpause roles for contract management
+- **Pausable user surface**: `stake`, `withdraw`, `ping`, `ft_transfer`, `ft_transfer_call`,
+  and `ft_on_transfer` can be paused by accounts holding the pause role
 
 ## How It Works
 
-1. **Staking**: Users stake NEAR (native or wNEAR) and receive LST tokens at a 1:1 ratio
+1. **Staking**: Users stake NEAR (native or wNEAR) and receive LST tokens at the current exchange rate
+   (1:1 only when no rewards have been synced yet; afterwards each LST is worth strictly more than 1 NEAR)
 2. **Validator delegation**: The contract stakes all NEAR with a pre-configured validator
-3. **Unstaking**: Users burn LST tokens to initiate unstaking, creating a withdrawal queue entry
-4. **Cooldown period**: After 4 epochs (~2 days), users can withdraw their NEAR
-5. **Withdrawal**: Users claim their NEAR (native or wNEAR) after the cooldown completes
+3. **Reward syncing**: Anyone may call `ping` (or it runs implicitly on each stake/unstake) to fold the
+   validator's accrued rewards into the contract's tracked balance, lifting the LST/NEAR exchange rate
+   and minting the configured protocol fee as LST to the treasury
+4. **Unstaking**: Users burn LST tokens to initiate unstaking, creating a withdrawal queue entry
+5. **Cooldown period**: After 4 epochs (~2 days), users can withdraw their NEAR
+6. **Withdrawal**: Users claim their NEAR (native or wNEAR) after the cooldown completes
 
 The contract manages the staking lifecycle, handles storage deposits, and supports both simple transfers and complex
 cross-contract calls through standardized message formats.
@@ -74,6 +84,7 @@ near contract call-function as-transaction <CONTRACT_ID> new \
   json-args '{
     "owner_id":           "admin.near",
     "wnear_id":           "wrap.near",
+    "treasury_id":        "treasury.near",
     "validator_public_key": "ed25519:<BASE58_KEY>",
     "metadata": {
       "spec":     "ft-1.0.0",
@@ -94,6 +105,7 @@ near contract call-function as-transaction <CONTRACT_ID> new \
 |------------------------|-------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | `owner_id`             | `AccountId`             | Yes      | Account that receives all admin/pause/unpause roles.                                                                                       |
 | `wnear_id`             | `AccountId`             | Yes      | Address of the wNEAR (wrapped NEAR) contract used for wNEAR-based staking and withdrawal.                                                  |
+| `treasury_id`          | `AccountId`             | Yes      | Account that receives the protocol fee, minted as LST on every reward sync. May equal `owner_id` or any other account.                     |
 | `validator_public_key` | `PublicKey`             | Yes      | Ed25519 public key of the validator node. The contract stakes its locked balance to this key.                                              |
 | `metadata`             | `FungibleTokenMetadata` | Yes      | Standard NEP-148 metadata (`spec`, `name`, `symbol`, `decimals`, optional `icon` / `reference` / `reference_hash`).                        |
 | `init_lock`            | `NearToken` (yoctoNEAR) | No       | Pre-set the initial locked balance. Useful in single-validator test sandboxes where the locked balance cannot be zero. Omit in production. |
@@ -186,8 +198,10 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 | `min_gas`         | `Gas` (u64)                    | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                            |
 | `refund_message`  | `UnstakeMessage`               | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery. |
 
-**Token amount minted.** Currently 1 yoctoNEAR staked = 1 yoctoLST minted (1:1). Future versions will adjust this ratio
-based on accrued validator rewards.
+**Token amount minted.** The amount of LST minted is `stake_amount * total_lst_supply / total_staked_amount`, floored
+(1:1 only while no LST has been minted or no rewards have been synced). Once `ping` has folded validator rewards into
+the tracked staked balance, each LST is worth strictly more than 1 NEAR — staking the same NEAR amount mints fewer LST,
+and unstaking the same LST amount returns more NEAR. The current ratio can be inspected via `get_exchange_rate`.
 
 ---
 
@@ -266,6 +280,21 @@ The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
 
+#### Partial delivery and retries (wNEAR with `msg`)
+
+When wNEAR is delivered via `ft_transfer_call` (i.e. `msg` is set), the receiver may consume only part of the amount.
+The unconsumed wNEAR is refunded back to the LST contract by the wNEAR contract's `ft_resolve_transfer`, and the queue
+entry is shrunk to the residual amount so the user can retry `withdraw` for the remainder.
+
+A few consequences worth knowing:
+
+- Concurrent `withdraw` calls for the same queue entry are rejected (`"The withdrawal for this hash is already in
+  progress"`). Wait for the in-flight call to complete before retrying.
+- On retry, neither `near_deposit` nor `storage_deposit` is performed again — the contract sends the residual wNEAR it
+  already holds, and assumes the receiver is still registered.
+- If the receiver's `ft_on_transfer` panics outright (no partial delivery), nothing changes in the queue and the user
+  may simply call `withdraw` again.
+
 ---
 
 ## Withdrawing after cooldown
@@ -295,6 +324,78 @@ The contract:
 4. Removes the entry from the queue.
 
 If called too early, the transaction panics with `"The cooldown hasn't passed yet"`.
+
+---
+
+## Rewards and protocol fee
+
+Validator rewards are not credited to a per-account balance. Instead, the contract reads its own
+`account_locked_balance + account_balance` and treats any growth above the previously-recorded total as the new reward
+for the epoch. That delta is added to the tracked staked amount, which raises the LST/NEAR exchange rate. A configurable
+share is minted as LST to the treasury account as the protocol fee.
+
+### `ping` — sync rewards on demand
+
+```bash
+near contract call-function as-transaction <CONTRACT_ID> ping \
+  json-args '{}' \
+  prepaid-gas '50 Tgas' \
+  attached-deposit '0 NEAR' \
+  sign-as <ANY_ACCOUNT> \
+  network-config mainnet
+```
+
+- Anyone may call `ping`. It is a no-op if rewards have already been synced in the current epoch.
+- When new rewards are detected, `ping` re-stakes the new total to the validator so that the locked balance keeps
+  earning on the increased principal.
+- `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
+  active users do not need to call `ping` themselves to get an up-to-date exchange rate.
+
+### `set_protocol_fee_bps` (admin only)
+
+```bash
+near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
+  json-args '{ "fee_bps": 1000 }' \
+  prepaid-gas '20 Tgas' \
+  attached-deposit '0 NEAR' \
+  sign-as admin.near \
+  network-config mainnet
+```
+
+- `fee_bps` is in basis points (1 bp = 0.01%). `1000` = 10%.
+- Capped at `2_000` (20%); higher values panic.
+- Only accounts with the `Admin` role may call this method.
+- The fee applies to *future* reward syncs only. Past syncs are not retroactively re-fee'd.
+
+### View methods
+
+| Method                            | Returns                                    | Notes                                                            |
+|-----------------------------------|--------------------------------------------|------------------------------------------------------------------|
+| `get_exchange_rate`               | `{ numerator, denominator }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync.  |
+| `get_reward_fee_fraction`         | `{ numerator, denominator }` (bps / 10000) | Currently configured protocol fee.                               |
+| `get_total_staked_balance`        | `NearToken`                                | Tracked NEAR backing the LST supply.                             |
+| `get_total_pending_withdrawals`   | `NearToken`                                | Sum of NEAR amounts queued for withdrawal.                       |
+| `get_total_balance`               | `NearToken`                                | Last-recorded `locked + unlocked` NEAR (updated by reward sync). |
+| `get_number_of_accounts`          | `u64`                                      | Number of LST holders.                                           |
+| `get_owner_id` / `get_treasury_id`| `AccountId`                                | Configured roles.                                                |
+| `get_staking_key`                 | `PublicKey`                                | Validator key the contract delegates to.                         |
+| `get_version`                     | `&'static str`                             | Crate version baked in at build time.                            |
+
+---
+
+## Pausing
+
+The contract uses `near-plugins`' `Pausable` machinery. The following user-facing methods can be paused independently
+by accounts holding the `Admin` or `PauseManager` role:
+
+- `stake`
+- `withdraw`
+- `ping`
+- `ft_transfer`, `ft_transfer_call`
+- `ft_on_transfer` (which gates wNEAR-based staking and LST-based unstaking)
+
+Accounts holding the `Admin` or `UnpauseManager` role may unpause. The `Upgradable` plugin is also enabled — code
+staging, deploying, and upgrade-duration management are all gated on the `Admin` role.
 
 ---
 
