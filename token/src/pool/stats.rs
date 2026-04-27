@@ -12,7 +12,7 @@ pub struct PoolStatistics {
     pub total_staked_amount: NearToken,
     /// The sum of NEAR amounts queued for withdrawal
     pub total_pending_withdrawals: NearToken,
-    /// The current withdrawal fee in basis points (1 bp = 0.01%)
+    /// The current protocol fee in basis points (1 bp = 0.01%)
     pub protocol_fee_bps: u16,
     /// The number of epochs since the last rewards sync.
     pub last_epoch_synced: u64,

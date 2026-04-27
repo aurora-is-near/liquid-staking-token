@@ -1,3 +1,4 @@
+use liquid_staking_token::ONE_YOCTO;
 use near_api::types::json::U128;
 use near_api::types::transaction::result::ExecutionSuccess;
 use near_api::{AccountId, Data, NearToken, Tokens};
@@ -30,7 +31,21 @@ pub trait FungibleToken {
         amount: NearToken,
         msg: impl ToString,
     ) -> anyhow::Result<ExecutionSuccess>;
-    async fn ft_storage_deposit(&self, account_id: &AccountId) -> anyhow::Result<()>;
+    async fn ft_storage_deposit(
+        &self,
+        signer: &Account,
+        account_id: &AccountId,
+    ) -> anyhow::Result<ExecutionSuccess>;
+    async fn ft_storage_withdraw(
+        &self,
+        signer: &Account,
+        amount: Option<NearToken>,
+    ) -> anyhow::Result<ExecutionSuccess>;
+    async fn ft_storage_unregister(
+        &self,
+        signer: &Account,
+        force: Option<bool>,
+    ) -> anyhow::Result<ExecutionSuccess>;
 }
 
 impl FungibleToken for Contract {
@@ -128,16 +143,58 @@ impl FungibleToken for Contract {
             .map_err(Into::into)
     }
 
-    async fn ft_storage_deposit(&self, account_id: &AccountId) -> anyhow::Result<()> {
+    async fn ft_storage_deposit(
+        &self,
+        signer: &Account,
+        account_id: &AccountId,
+    ) -> anyhow::Result<ExecutionSuccess> {
         self.inner
             .storage_deposit()
             .deposit(account_id.clone(), FT_STORAGE_DEPOSIT)
             .registration_only()
-            .with_signer(self.id().clone(), self.signer())
-            .send_to(self.config())
+            .with_signer(signer.id().clone(), signer.signer())
+            .send_to(signer.config())
             .await?
-            .assert_success();
+            .into_result()
+            .map_err(Into::into)
+    }
 
-        Ok(())
+    async fn ft_storage_withdraw(
+        &self,
+        signer: &Account,
+        amount: Option<NearToken>,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function(
+                "storage_withdraw",
+                json!({
+                    "amount": amount,
+                }),
+            )
+            .transaction()
+            .deposit(ONE_YOCTO)
+            .max_gas()
+            .with_signer(signer.id().clone(), signer.signer())
+            .send_to(signer.config())
+            .await?
+            .into_result()
+            .map_err(Into::into)
+    }
+
+    async fn ft_storage_unregister(
+        &self,
+        signer: &Account,
+        force: Option<bool>,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function("storage_unregister", json!({"force": force}))
+            .transaction()
+            .deposit(ONE_YOCTO)
+            .max_gas()
+            .with_signer(signer.id().clone(), signer.signer())
+            .send_to(signer.config())
+            .await?
+            .into_result()
+            .map_err(Into::into)
     }
 }

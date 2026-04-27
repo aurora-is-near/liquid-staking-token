@@ -35,6 +35,13 @@ impl FungibleTokenCore for LiquidStakingToken {
         let is_new_delegator = self.is_zero_balance(&receiver_id);
         let promise = self.token.ft_transfer_call(receiver_id, amount, memo, msg);
 
+        // Asymmetric on purpose: increment for a newly-funded receiver runs
+        // synchronously here because the receiver's post-call balance is
+        // known. The matching decrement for the sender (and the receiver, on
+        // a full refund) is deferred to `ft_resolve_transfer`, which sees the
+        // final balances after `ft_on_transfer` has reported its `unused`
+        // amount. Tightening this into a synchronous decrement would
+        // double-count once the resolver runs.
         if is_new_delegator {
             self.statistics.increase_delegators();
         }

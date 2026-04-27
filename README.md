@@ -108,9 +108,13 @@ near contract call-function as-transaction <CONTRACT_ID> new \
 | `treasury_id`          | `AccountId`             | Yes      | Account that receives the protocol fee, minted as LST on every reward sync. May equal `owner_id` or any other account.                     |
 | `validator_public_key` | `PublicKey`             | Yes      | Ed25519 public key of the validator node. The contract stakes its locked balance to this key.                                              |
 | `metadata`             | `FungibleTokenMetadata` | Yes      | Standard NEP-148 metadata (`spec`, `name`, `symbol`, `decimals`, optional `icon` / `reference` / `reference_hash`).                        |
-| `init_lock`            | `NearToken` (yoctoNEAR) | No       | Pre-set the initial locked balance. Useful in single-validator test sandboxes where the locked balance cannot be zero. Omit in production. |
 
 > The contract panics if called a second time (`"Already initialized"`).
+
+**Genesis stake.** At init time the contract reads `env::account_locked_balance()` and, if non-zero, mints an equal
+amount of LST to `treasury_id` and seeds `total_staked_amount` with that value. To bootstrap the pool with real backing,
+the deployer should pre-stake to `validator_public_key` before calling `new`. If the locked balance is zero at init,
+no LST is minted and the first staker bootstraps the pool at a 1:1 NEAR-to-LST ratio.
 
 ---
 
@@ -348,6 +352,10 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
 - Anyone may call `ping`. It is a no-op if rewards have already been synced in the current epoch.
 - When new rewards are detected, `ping` re-stakes the new total to the validator so that the locked balance keeps
   earning on the increased principal.
+- If the restake action itself fails (e.g. the validator key was retired), `ping`'s callback unstakes everything and
+  emits a `Restake failed; …Admin recovery required` log line. The contract then continues serving withdrawals from
+  the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` and triggers a fresh
+  stake (see [Admin operations](#admin-operations)).
 - `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
   active users do not need to call `ping` themselves to get an up-to-date exchange rate.
 
@@ -396,6 +404,51 @@ by accounts holding the `Admin` or `PauseManager` role:
 
 Accounts holding the `Admin` or `UnpauseManager` role may unpause. The `Upgradable` plugin is also enabled — code
 staging, deploying, and upgrade-duration management are all gated on the `Admin` role.
+
+---
+
+## Admin operations
+
+All methods below are gated on the `Admin` role, granted to `owner_id` at init.
+`set_protocol_fee_bps` is documented under [Rewards and protocol fee](#set_protocol_fee_bps-admin-only).
+
+### `set_validator_public_key` — change the staking validator
+
+```bash
+near contract call-function as-transaction <CONTRACT_ID> set_validator_public_key \
+  json-args '{ "validator_public_key": "ed25519:<NEW_BASE58_KEY>" }' \
+  prepaid-gas '20 Tgas' \
+  attached-deposit '0 NEAR' \
+  sign-as admin.near \
+  network-config mainnet
+```
+
+- Replaces the in-state validator public key. The contract's currently-locked NEAR remains bonded to the *old*
+  validator until a stake action fires with the new key.
+- Migration is propagated by the next stake-bearing operation: `stake`, `unstake`, or `ping` (after rewards are
+  detected). NEAR's runtime then schedules unbonding from the old validator over the standard 4-epoch period before
+  bonding to the new one.
+- If the old validator is unresponsive (no rewards arrive, so `ping` becomes a no-op), use `add_full_access_key` to
+  manually fire a stake action and force the migration.
+- A typo (or otherwise-invalid key) bricks subsequent stake operations until the admin reissues the call. The contract
+  performs no key-ownership check.
+
+### `add_full_access_key` — emergency recovery key
+
+```bash
+near contract call-function as-transaction <CONTRACT_ID> add_full_access_key \
+  json-args '{ "public_key": "ed25519:<BASE58_KEY>" }' \
+  prepaid-gas '20 Tgas' \
+  attached-deposit '1 yoctoNEAR' \
+  sign-as admin.near \
+  network-config mainnet
+```
+
+- Adds a full access key to the contract's account so the holder can sign arbitrary actions (manual stake, transfer,
+  redeploy, etc.) directly against it.
+- Intended as a break-glass mechanism, primarily to recover from a dead validator that prevents `ping` from firing a
+  fresh stake. Use sparingly: there is no on-chain `delete_key` method, so a granted key can only be removed via a
+  contract upgrade.
 
 ---
 

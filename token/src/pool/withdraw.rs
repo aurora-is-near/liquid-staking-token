@@ -87,7 +87,9 @@ impl LiquidStakingToken {
                     .unwrap_or_else(|| env::panic_str("No withdrawal in unstake queue"));
 
                 user_distribution.withdrawal_amount = refund;
-                // Storage was already paid on this attempt; don't charge again.
+                // We have a refund from the contract. So, it will be one more withdrawal,
+                // so we need to mark the distribution as distributed before to prevent near_deposit
+                // and storage_deposit if any.
                 user_distribution.is_distributed_before = true;
 
                 total_amount.saturating_sub(refund)

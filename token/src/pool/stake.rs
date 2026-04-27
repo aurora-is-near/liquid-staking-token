@@ -96,8 +96,8 @@ impl LiquidStakingToken {
                     self.statistics.increase_total_balance(total_stake_amount);
                 }
 
-                // At this point we already staked deposited tokens, therefore, any refunds via
-                // unstake with cooldown period only.
+                // At this point we already staked deposited tokens; therefore, any refund
+                // happens via unstake with cooldown period only.
                 if let Some(msg) = &args.msg {
                     let min_gas = calculate_min_gas(args.min_gas, true);
 

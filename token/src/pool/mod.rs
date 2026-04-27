@@ -20,6 +20,7 @@ const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
 const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
 const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
+const ON_PING_RESTAKE_GAS: Gas = Gas::from_tgas(20);
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
 type LstToken = NearToken;
@@ -127,7 +128,32 @@ impl LiquidStakingToken {
                 self.statistics.total_staked_amount,
                 self.validator_public_key.clone(),
             )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .with_static_gas(ON_PING_RESTAKE_GAS)
+                    .on_ping_restake(),
+            )
             .into()
+    }
+
+    #[private]
+    pub fn on_ping_restake(
+        &self,
+        #[callback_result] result: Result<(), near_sdk::PromiseError>,
+    ) -> PromiseOrValue<bool> {
+        if result.is_err() && env::account_locked_balance() > NearToken::ZERO {
+            near_sdk::log!(
+                "Restake failed; unstaking {} yoctoNEAR. Admin recovery required",
+                env::account_locked_balance().as_yoctonear()
+            );
+
+            Promise::new(env::current_account_id())
+                .stake(NearToken::ZERO, self.validator_public_key.clone())
+                .into()
+        } else {
+            PromiseOrValue::Value(true)
+        }
     }
 }
 
@@ -213,7 +239,7 @@ impl LiquidStakingToken {
         NearToken::from_yoctonear(mul_div_floor(yocto_amount, total_staked, total_shared))
     }
 
-    /// Calculates the protocol fee. Returns an amount without fee and it itself.
+    /// Calculates the protocol fee. Returns a reward without fee and fee itself.
     pub(crate) fn split_protocol_fee(&self, amount: NearToken) -> (NearToken, NearToken) {
         if self.statistics.protocol_fee_bps == 0 {
             return (amount, NearToken::ZERO);
@@ -228,7 +254,7 @@ impl LiquidStakingToken {
         let fee = NearToken::from_yoctonear(fee_yocto);
         let net = amount
             .checked_sub(fee)
-            .unwrap_or_else(|| env::panic_str("Withdrawal fee exceeds the withdrawal amount"));
+            .unwrap_or_else(|| env::panic_str("Protocol fee exceeds the reward amount"));
 
         (net, fee)
     }

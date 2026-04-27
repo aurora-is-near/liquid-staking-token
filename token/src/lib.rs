@@ -85,7 +85,6 @@ impl LiquidStakingToken {
         treasury_id: AccountId,
         validator_public_key: PublicKey,
         metadata: FungibleTokenMetadata,
-        init_lock: Option<NearToken>,
     ) -> Self {
         require!(!env::state_exists(), "Already initialized");
         metadata.assert_valid();
@@ -98,7 +97,8 @@ impl LiquidStakingToken {
             token.internal_register_account(&treasury_id);
         }
 
-        let latest_total_balance = env::account_locked_balance()
+        let init_locked_balance = env::account_locked_balance();
+        let latest_total_balance = init_locked_balance
             .checked_add(env::account_balance())
             .unwrap_or_else(|| env::panic_str("Overflow while calculating total balance"));
 
@@ -109,20 +109,21 @@ impl LiquidStakingToken {
             withdrawal_locks: LookupSet::new(StorageKey::WithdrawalLocks),
             owner_id: owner_id.clone(),
             wnear_id,
-            treasury_id,
+            treasury_id: treasury_id.clone(),
             validator_public_key,
             statistics: PoolStatistics {
                 latest_total_balance,
-                total_staked_amount: init_lock.unwrap_or_default(),
+                total_staked_amount: init_locked_balance,
                 ..Default::default()
             },
         };
 
-        if let Some(init_lock) = init_lock {
-            contract.mint_shared_to_owner(&owner_id, init_lock);
+        if init_locked_balance > NearToken::ZERO {
+            contract.mint_lst_to_treasury(&treasury_id, init_locked_balance);
         }
 
         contract.grant_roles(&owner_id);
+
         contract
     }
 
@@ -148,14 +149,9 @@ impl LiquidStakingToken {
         acl.grant_role_unchecked(Role::UnpauseManager, admin_account_id);
     }
 
-    fn mint_shared_to_owner(&mut self, owner_id: &AccountId, init_lock: NearToken) {
-        let lst = &mut self.token;
-
-        if owner_id != &env::current_account_id() {
-            lst.internal_register_account(owner_id);
-        }
-
-        lst.internal_deposit(owner_id, init_lock.as_yoctonear());
+    fn mint_lst_to_treasury(&mut self, treasury_id: &AccountId, init_lock: NearToken) {
+        self.token
+            .internal_deposit(treasury_id, init_lock.as_yoctonear());
         self.statistics.increase_delegators();
     }
 }

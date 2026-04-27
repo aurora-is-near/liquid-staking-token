@@ -72,18 +72,21 @@ impl Env {
             intents.add_public_key(users.1.id(), public_key),
         )?;
 
+        let wnear_account = wnear.as_account();
+        let lst_account = lst.as_account();
+
         tokio::try_join!(
-            wnear.ft_storage_deposit(intents.id()),
-            wnear.ft_storage_deposit(lst.id()),
-            lst.ft_storage_deposit(intents.id()),
+            wnear.ft_storage_deposit(&wnear_account, intents.id()),
+            wnear.ft_storage_deposit(&wnear_account, lst.id()),
+            lst.ft_storage_deposit(&lst_account, intents.id()),
         )?;
 
         if !builder.without_storage_deposit {
             tokio::try_join!(
-                wnear.ft_storage_deposit(users.0.id()),
-                wnear.ft_storage_deposit(users.1.id()),
-                lst.ft_storage_deposit(users.0.id()),
-                lst.ft_storage_deposit(users.1.id()),
+                wnear.ft_storage_deposit(&wnear_account, users.0.id()),
+                wnear.ft_storage_deposit(&wnear_account, users.1.id()),
+                lst.ft_storage_deposit(&lst_account, users.0.id()),
+                lst.ft_storage_deposit(&lst_account, users.1.id()),
             )?;
         }
 

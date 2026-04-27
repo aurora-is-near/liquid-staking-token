@@ -8,6 +8,7 @@ mod multi_user;
 mod pool;
 mod rewards;
 mod stake;
+mod storage;
 mod unstake;
 
 const ZERO_AMOUNT: NearToken = NearToken::ZERO;
