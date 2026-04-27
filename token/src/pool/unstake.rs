@@ -71,6 +71,7 @@ impl LiquidStakingToken {
             user_distribution.withdrawal_amount = user_distribution
                 .withdrawal_amount
                 .saturating_add(near_amount);
+            // It's done intentionally. Each subsequent unstaking shifts the withdrawal epoch_id by 4 epochs.
             user_distribution.unstake_epoch = epoch_id;
 
             self.statistics.increase_pending_withdrawals(near_amount);
@@ -98,16 +99,21 @@ impl LiquidStakingToken {
 
         self.sync_rewards_internal(None);
 
-        let msg_hash = args
-            .hash()
-            .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
-
         let unstake_amount = self.lst_to_near(lst_amount);
+
+        require!(
+            unstake_amount > NearToken::ZERO,
+            "Unstake amount in NEAR must be more than 0"
+        );
 
         require!(
             unstake_amount <= self.statistics.total_staked_amount,
             "Attempt to unstake more than staked"
         );
+
+        let msg_hash = args
+            .hash()
+            .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
 
         let new_total_staked_amount = self
             .statistics
