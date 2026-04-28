@@ -82,20 +82,32 @@ impl LiquidStakingToken {
     }
 
     #[private]
+    pub fn modify_state_after_stake(
+        &mut self,
+        account_id: &AccountId,
+        total_staked_tokens: NearToken,
+        amount: NearToken,
+        lst_tokens: NearToken,
+        is_contract_staking: bool,
+    ) {
+        if !is_contract_staking {
+            self.statistics.increase_total_balance(amount);
+        }
+
+        self.statistics.total_staked_amount = total_staked_tokens;
+        self.internal_deposit(account_id, lst_tokens);
+    }
+
+    #[private]
     pub fn on_stake_and_deposit(
         &mut self,
         deposit_token: DepositToken,
         total_stake_amount: NearToken,
         lst_tokens: NearToken,
         args: StakeMessage,
-        is_contract_staking: bool,
     ) -> PromiseOrValue<U128> {
         match env::promise_result_checked(0, 0) {
             Ok(_) => {
-                if !is_contract_staking {
-                    self.statistics.increase_total_balance(total_stake_amount);
-                }
-
                 // At this point we already staked deposited tokens; therefore, any refund
                 // happens via unstake with cooldown period only.
                 if let Some(msg) = &args.msg {
@@ -245,12 +257,18 @@ impl LiquidStakingToken {
         promise = Self::ext_on(promise)
             .with_static_gas(MODIFY_STATE_AFTER_STAKE_GAS)
             .with_unused_gas_weight(0)
-            .modify_state_after_stake(&args.receiver_id, new_total_staked_amount, lst_tokens, true);
+            .modify_state_after_stake(
+                &args.receiver_id,
+                new_total_staked_amount,
+                amount,
+                lst_tokens,
+                is_contract_staking,
+            );
 
         promise.then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
-                .on_stake_and_deposit(deposit_token, amount, lst_tokens, args, is_contract_staking),
+                .on_stake_and_deposit(deposit_token, amount, lst_tokens, args),
         )
     }
 }
