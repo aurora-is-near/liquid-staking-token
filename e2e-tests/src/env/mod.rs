@@ -161,7 +161,7 @@ impl Env {
             NON_WNEAR,
             wnear_wasm().await?,
             serde_json::json!({
-                "owner_id": "non_wnear.near",
+                "owner_id": NON_WNEAR,
                 "total_supply": NearToken::ZERO,
                 "metadata": {
                     "spec": "ft-1.0.0",
@@ -469,6 +469,11 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
             },
             GenesisAccount {
                 account_id: FT_RECEIVER.parse().unwrap(),
+                balance: INITIAL_BALANCE,
+                ..Default::default()
+            },
+            GenesisAccount {
+                account_id: NON_WNEAR.parse().unwrap(),
                 balance: INITIAL_BALANCE,
                 ..Default::default()
             },
