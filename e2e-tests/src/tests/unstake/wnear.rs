@@ -11,6 +11,10 @@ use crate::env::wnear::WNear;
 use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
+fn refund_once_message(refund_amount: NearToken) -> String {
+    format!("refund_once:{}", refund_amount.as_yoctonear())
+}
+
 #[tokio::test]
 async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
     let env = Env::builder().build().await?;
@@ -284,6 +288,94 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
         .mt_balance_of(alice.id(), env.wnear.id())
         .await?;
     assert_eq!(intents_balance, STAKE_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reunstake_with_same_wnear_message_after_partial_refund() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let ft_receiver = env.deploy_ft_receiver().await?;
+    let half_stake_amount = STAKE_AMOUNT.saturating_div(2);
+    let first_refund_amount = half_stake_amount.saturating_div(2);
+    let first_consumed_amount = half_stake_amount.saturating_sub(first_refund_amount);
+
+    env.wnear
+        .ft_storage_deposit(&env.wnear.as_account(), ft_receiver.id())
+        .await?;
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(
+        ft_receiver.id(),
+        &WithdrawTokens::Wnear {
+            storage_deposit: None,
+            msg: Some(refund_once_message(first_refund_amount)),
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
+        .await?;
+
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(half_stake_amount)
+    );
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        half_stake_amount
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &unstake_message).await?;
+
+    assert_eq!(
+        env.wnear.ft_balance_of(ft_receiver.id()).await?,
+        first_consumed_amount
+    );
+    assert_eq!(
+        env.wnear.ft_balance_of(env.lst.id()).await?,
+        first_refund_amount
+    );
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        first_refund_amount
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        half_stake_amount.saturating_add(first_refund_amount)
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &unstake_message).await?;
+
+    assert_eq!(
+        env.wnear.ft_balance_of(ft_receiver.id()).await?,
+        STAKE_AMOUNT
+    );
+    assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     Ok(())
 }

@@ -153,6 +153,25 @@ impl Env {
         Ok(ft_receiver)
     }
 
+    pub async fn deploy_ft_token(&self) -> anyhow::Result<Contract> {
+        create_contract(
+            &self.config,
+            "test.near",
+            wnear_wasm().await?,
+            serde_json::json!({
+                "owner_id": "wnear.near",
+                "total_supply": NearToken::ZERO,
+                "metadata": {
+                    "spec": "ft-1.0.0",
+                    "name": "Other FT",
+                    "symbol": "OTHER",
+                    "decimals": 24,
+                }
+            }),
+        )
+        .await
+    }
+
     pub async fn epoch_height(&self, block_height: Option<u64>) -> anyhow::Result<u64> {
         tokio_retry::Retry::spawn(retry_strategy(), || async {
             near_api::Staking::epoch_validators_info()

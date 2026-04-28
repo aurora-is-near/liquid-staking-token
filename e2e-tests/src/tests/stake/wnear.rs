@@ -1,4 +1,6 @@
 use liquid_staking_token::pool::WithdrawTokens;
+use near_api::NearToken;
+use near_api::types::transaction::result::TransactionResultError;
 use near_sdk::AccountId;
 use testresult::TestResult;
 
@@ -11,6 +13,35 @@ use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
 use crate::tests::{
     ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
 };
+
+const PARTIAL_REFUND_AMOUNT: NearToken = NearToken::from_near(250);
+const INVALID_TOKEN_ACCOUNT_ERROR: &str = "Invalid token account ID";
+
+fn partial_refund_message(refund_amount: NearToken) -> String {
+    refund_amount.as_yoctonear().to_string()
+}
+
+fn assert_invalid_token_account_error<T>(result: anyhow::Result<T>) {
+    let Err(error) = result else {
+        panic!("Expected ft_on_transfer to fail");
+    };
+    let tx_error = error
+        .downcast_ref::<TransactionResultError>()
+        .expect("Expected transaction result error");
+
+    match tx_error {
+        TransactionResultError::Failure(failure) => {
+            let failure = failure.to_string();
+            assert!(
+                failure.contains(INVALID_TOKEN_ACCOUNT_ERROR),
+                "Expected transaction failure to contain `{INVALID_TOKEN_ACCOUNT_ERROR}`, got `{failure}`"
+            );
+        }
+        TransactionResultError::Pending(status) => {
+            panic!("Expected transaction failure: {status:?}");
+        }
+    }
+}
 
 #[tokio::test]
 async fn test_stake_with_wnear_and_get_on_intents() -> TestResult {
@@ -353,6 +384,183 @@ async fn test_stake_with_wnear_and_to_send_on_intents_with_bad_account_with_wnea
 
     let wnear_alice_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_alice_balance, STAKE_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_wnear_and_ft_on_transfer_panic_with_native_refund() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let ft_receiver = env.deploy_ft_receiver().await?;
+    let alice_native_balance_before = alice.near_balance().await?;
+
+    env.wnear.near_deposit(alice, STAKE_AMOUNT).await?;
+
+    let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
+    assert_eq!(wnear_balance, STAKE_AMOUNT);
+
+    let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+
+    env.wnear
+        .ft_transfer_call(
+            alice,
+            env.lst.id(),
+            STAKE_AMOUNT,
+            stake_message_with_refund(
+                ft_receiver.id(),
+                None,
+                Some("invalid refund amount"),
+                Some(&refund_message),
+            ),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(ft_receiver.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        alice_native_balance_before.total,
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT) // Alice's balance was decreased by STAKE_AMOUNT
+            .saturating_add(ONE_YOCTO) // ft_transfer_call deposits 1 yoctoNEAR to the contract
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &refund_message).await?;
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_native_balance_before.total.saturating_sub(ONE_YOCTO)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_wnear_and_partial_nep141_refund_with_refund_message() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let ft_receiver = env.deploy_ft_receiver().await?;
+    let alice_native_balance_before = alice.near_balance().await?;
+    let consumed_amount = STAKE_AMOUNT.saturating_sub(PARTIAL_REFUND_AMOUNT);
+    let refund_message = unstake_message(
+        alice.id(),
+        &WithdrawTokens::Wnear {
+            storage_deposit: None,
+            msg: None,
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.wnear.near_deposit(alice, STAKE_AMOUNT).await?;
+
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    env.wnear
+        .ft_transfer_call(
+            alice,
+            env.lst.id(),
+            STAKE_AMOUNT,
+            stake_message_with_refund(
+                ft_receiver.id(),
+                None,
+                Some(partial_refund_message(PARTIAL_REFUND_AMOUNT)),
+                Some(&refund_message),
+            ),
+        )
+        .await?;
+
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(
+        env.lst.ft_balance_of(ft_receiver.id()).await?,
+        consumed_amount
+    );
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(consumed_amount)
+    );
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        PARTIAL_REFUND_AMOUNT
+    );
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        alice_native_balance_before.total,
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT) // Alice's balance was decreased by STAKE_AMOUNT
+            .saturating_add(ONE_YOCTO) // ft_transfer_call deposits 1 yoctoNEAR to the contract
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &refund_message).await?;
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.ft_balance_of(ft_receiver.id()).await?,
+        consumed_amount
+    );
+    assert_eq!(
+        env.wnear.ft_balance_of(alice.id()).await?,
+        PARTIAL_REFUND_AMOUNT
+    );
+    assert_eq!(
+        alice_native_balance_before.total,
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT) // The partial refund is returned as wNEAR
+            .saturating_add(ONE_YOCTO) // ft_transfer_call deposits 1 yoctoNEAR to the contract
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_non_wnear_non_lst_token_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let other_ft = env.deploy_ft_token().await?;
+
+    let result = env
+        .lst
+        .ft_on_transfer(
+            &other_ft.as_account(),
+            alice.id(),
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&AccountId>),
+        )
+        .await;
+
+    assert_invalid_token_account_error(result);
+
+    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
 
     Ok(())
 }
