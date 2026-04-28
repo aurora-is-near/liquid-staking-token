@@ -105,7 +105,10 @@ impl UnstakeMessage {
     /// # Returns
     ///
     /// * `Ok(CryptoHash)` - A 32-byte cryptographic hash of the serialized object
-    /// * `Err(std::io::Error)` - If Borsh serialization fails
+    ///
+    /// # Errors
+    ///
+    ///  `Err(std::io::Error)` if the object cannot be serialized in borsh format.
     ///
     /// # Examples
     ///
