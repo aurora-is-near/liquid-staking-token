@@ -24,15 +24,9 @@ const ON_PING_RESTAKE_GAS: Gas = Gas::from_tgas(20);
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
 #[near(serializers = [json])]
-pub struct Ratio {
-    numerator: U128,
-    denominator: U128,
-}
-
-#[near(serializers = [json])]
-pub struct RatioU16 {
-    numerator: u16,
-    denominator: u16,
+pub struct Ratio<T> {
+    numerator: T,
+    denominator: T,
 }
 
 #[near]
@@ -43,7 +37,7 @@ impl LiquidStakingToken {
     }
 
     /// Returns the current exchange rate of LST to NEAR.
-    pub const fn get_exchange_rate(&self) -> Ratio {
+    pub const fn get_exchange_rate(&self) -> Ratio<U128> {
         let total_staked = self.statistics.total_staked_amount.as_yoctonear();
         let total_lst_supply = self.token.total_supply;
 
@@ -60,8 +54,8 @@ impl LiquidStakingToken {
     }
 
     /// Returns the protocol fee fraction as a ratio.
-    pub fn get_reward_fee_fraction(&self) -> RatioU16 {
-        RatioU16 {
+    pub const fn get_reward_fee_fraction(&self) -> Ratio<u16> {
+        Ratio {
             numerator: self.statistics.protocol_fee_bps,
             denominator: stats::BPS_DENOMINATOR,
         }
@@ -98,23 +92,6 @@ impl LiquidStakingToken {
     /// account's NEAR balance.
     pub const fn get_total_balance(&self) -> NearToken {
         self.statistics.latest_total_balance
-    }
-
-    #[private]
-    pub fn modify_state_after_stake(
-        &mut self,
-        account_id: &AccountId,
-        total_staked_tokens: NearToken,
-        lst_tokens: NearToken,
-        is_stake: bool,
-    ) {
-        self.statistics.total_staked_amount = total_staked_tokens;
-
-        if is_stake {
-            self.internal_deposit(account_id, lst_tokens);
-        } else {
-            self.internal_withdraw(account_id, lst_tokens);
-        }
     }
 
     /// Publicly callable rewards sync. Reads `account_locked_balance +
