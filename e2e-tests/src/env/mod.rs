@@ -25,6 +25,7 @@ const INTENTS: &str = "intents.sandbox";
 const LST: &str = "lst.sandbox";
 const ALICE: &str = "alice.sandbox";
 const BOB: &str = "bob.sandbox";
+const NON_WNEAR: &str = "non_wnear.sandbox";
 const FT_RECEIVER: &str = "ft_receiver.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
 
@@ -157,10 +158,10 @@ impl Env {
     pub async fn deploy_ft_token(&self) -> anyhow::Result<Contract> {
         create_contract(
             &self.config,
-            "test.near",
+            NON_WNEAR,
             wnear_wasm().await?,
             serde_json::json!({
-                "owner_id": "wnear.near",
+                "owner_id": "non_wnear.near",
                 "total_supply": NearToken::ZERO,
                 "metadata": {
                     "spec": "ft-1.0.0",
