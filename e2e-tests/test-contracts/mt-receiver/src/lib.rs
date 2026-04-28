@@ -1,4 +1,4 @@
-use near_sdk::{AccountId, PromiseOrValue, json_types::U128, near};
+use near_sdk::{AccountId, PromiseOrValue, env, json_types::U128, near};
 
 #[derive(Default)]
 #[near(contract_state)]
@@ -22,7 +22,9 @@ impl Contract {
         msg: String,
     ) -> PromiseOrValue<Vec<U128>> {
         let _ = (sender_id, previous_owner_ids, token_ids);
-        let refund_amount = msg.parse::<u128>().unwrap_or_default();
+        let refund_amount = msg.parse::<u128>().unwrap_or_else(|_| {
+            env::panic_str("mt_on_transfer: msg must be a valid u128 refund amount")
+        });
 
         PromiseOrValue::Value(
             amounts

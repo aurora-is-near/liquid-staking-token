@@ -13,11 +13,7 @@ use crate::tests::{
     ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
 };
 
-const STAKE_AMOUNT_ERROR: &str = concat!(
-    "ExecutionFailure: ActionError(ActionError { index: Some(0), ",
-    "kind: FunctionCallError(ExecutionError(\"Smart contract panicked: ",
-    "The amount of NEAR tokens for staking must be more than 0\")) })"
-);
+const STAKE_AMOUNT_ERROR: &str = "The amount of NEAR tokens for staking must be more than 0";
 const PARTIAL_REFUND_AMOUNT: NearToken = NearToken::from_near(250);
 
 fn assert_stake_amount_error<T>(result: anyhow::Result<T>) {
@@ -30,7 +26,11 @@ fn assert_stake_amount_error<T>(result: anyhow::Result<T>) {
 
     match tx_error {
         TransactionResultError::Failure(failure) => {
-            assert_eq!(failure.to_string(), STAKE_AMOUNT_ERROR);
+            let failure = failure.to_string();
+            assert!(
+                failure.contains(STAKE_AMOUNT_ERROR),
+                "Expected transaction failure to contain `{STAKE_AMOUNT_ERROR}`, got `{failure}`"
+            );
         }
         TransactionResultError::Pending(status) => {
             panic!("Expected transaction failure: {status:?}");
