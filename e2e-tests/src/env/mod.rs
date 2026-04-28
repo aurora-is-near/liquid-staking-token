@@ -25,10 +25,11 @@ const INTENTS: &str = "intents.sandbox";
 const LST: &str = "lst.sandbox";
 const ALICE: &str = "alice.sandbox";
 const BOB: &str = "bob.sandbox";
+const NON_WNEAR: &str = "non_wnear.sandbox";
 const FT_RECEIVER: &str = "ft_receiver.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
 
-pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_007_020_000);
+pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_008_020_000);
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
 pub const BLOCKS_PER_EPOCH: u64 = 50;
@@ -152,6 +153,25 @@ impl Env {
             .await?;
 
         Ok(ft_receiver)
+    }
+
+    pub async fn deploy_ft_token(&self) -> anyhow::Result<Contract> {
+        create_contract(
+            &self.config,
+            NON_WNEAR,
+            wnear_wasm().await?,
+            serde_json::json!({
+                "owner_id": NON_WNEAR,
+                "total_supply": NearToken::ZERO,
+                "metadata": {
+                    "spec": "ft-1.0.0",
+                    "name": "Other FT",
+                    "symbol": "OTHER",
+                    "decimals": 24,
+                }
+            }),
+        )
+        .await
     }
 
     pub async fn epoch_height(&self, block_height: Option<u64>) -> anyhow::Result<u64> {
@@ -449,6 +469,11 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
             },
             GenesisAccount {
                 account_id: FT_RECEIVER.parse().unwrap(),
+                balance: INITIAL_BALANCE,
+                ..Default::default()
+            },
+            GenesisAccount {
+                account_id: NON_WNEAR.parse().unwrap(),
                 balance: INITIAL_BALANCE,
                 ..Default::default()
             },
