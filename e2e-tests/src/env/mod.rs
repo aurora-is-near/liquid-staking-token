@@ -29,7 +29,7 @@ const NON_WNEAR: &str = "non_wnear.sandbox";
 const FT_RECEIVER: &str = "ft_receiver.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
 
-pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_007_020_000);
+pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_008_020_000);
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
 pub const BLOCKS_PER_EPOCH: u64 = 50;
