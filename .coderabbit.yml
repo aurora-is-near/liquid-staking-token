@@ -20,7 +20,6 @@ reviews:
         - Public API surface — every pub fn/struct/enum must have a doc comment
         - Arithmetic overflow/underflow risks (prefer checked_*/saturating_* over raw ops)
         - State mutation ordering to prevent re-entrancy or inconsistent intermediate states
-      profile: "assertive"
  
     - path: "e2e-tests/**"
       instructions: |
@@ -30,7 +29,6 @@ reviews:
         - Prioritise test clarity and readability over micro-optimisations
         - Flag only genuine correctness issues in test setup/assertions
         - Helper utilities and fixtures can be loosely documented
-      profile: "chill"
  
   auto_review:
     enabled: true
@@ -45,8 +43,6 @@ reviews:
  
   tools:
     clippy:
-      enabled: true
-    rustfmt:
       enabled: true
  
 chat:
