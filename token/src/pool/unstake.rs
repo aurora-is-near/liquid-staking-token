@@ -9,7 +9,7 @@ use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);
 
 #[derive(Debug, Clone)]
-#[near(serializers = [json])]
+#[near(serializers = [json, borsh])]
 #[serde(rename_all = "lowercase")]
 pub enum WithdrawTokens {
     Native,
@@ -26,7 +26,7 @@ pub enum WithdrawTokens {
 }
 
 #[derive(Debug, Clone)]
-#[near(serializers = [json])]
+#[near(serializers = [json, borsh])]
 #[serde(rename_all = "lowercase")]
 pub struct UnstakeMessage {
     /// The account ID to which the staked tokens should be sent.
@@ -36,21 +36,21 @@ pub struct UnstakeMessage {
 }
 
 impl UnstakeMessage {
-    /// Computes a cryptographic hash of the stake message.
+    /// Computes a cryptographic hash of the unstake message.
     ///
-    /// This method serializes the `StakeMessage` to JSON format and then applies
+    /// This method serializes the `UnstakeMessage` to Borsh format and then applies
     /// the Keccak-256 hashing algorithm to produce a unique hash value.
     ///
     /// # Returns
     ///
     /// Returns `Ok(CryptoHash)` containing the Keccak-256 hash of the serialized message,
-    /// or `Err` if the serialization to JSON fails.
+    /// or `Err` if the serialization to Borsh fails.
     ///
     /// # Errors
     ///
-    /// Returns a `near_sdk::serde_json::Error` if the stake message cannot be serialized to JSON.
-    pub fn hash(&self) -> Result<CryptoHash, near_sdk::serde_json::Error> {
-        near_sdk::serde_json::to_vec(self).map(env::keccak256_array)
+    /// Returns an `std::io::Error` if the unstake message cannot be serialized to Borsh.
+    pub fn hash(&self) -> Result<CryptoHash, std::io::Error> {
+        near_sdk::borsh::to_vec(self).map(env::keccak256_array)
     }
 }
 
@@ -81,7 +81,7 @@ impl LiquidStakingToken {
         } else {
             let lst_yocto = lst_amount.as_yoctonear();
             near_sdk::log!("Error while unstaking, refund: {lst_yocto} LST");
-
+            // TODO: Do not return tokens if unstaking initiated because of refund of LST tokens from staking
             PromiseOrValue::Value(lst_yocto.into())
         }
     }

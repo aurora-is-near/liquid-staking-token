@@ -1,6 +1,7 @@
 use liquid_staking_token::pool::WithdrawTokens;
-use near_api::NearToken;
 use near_api::types::transaction::result::TransactionResultError;
+use near_api::{NearToken, PublicKey};
+use std::str::FromStr;
 use testresult::TestResult;
 
 use crate::env::ft::FT_STORAGE_DEPOSIT;
@@ -582,6 +583,74 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         bob.near_balance().await?.total,
         INITIAL_BALANCE.saturating_sub(ONE_YOCTO)
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_with_storage_deposit_less_than_needed() -> TestResult {
+    let env = Env::builder().without_storage_deposit().build().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let lst_balance_before = env.lst.near_balance().await?;
+
+    // Now stake should fail because of the storage_deposit is less than needed.
+    let result = env
+        .lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(
+                alice.id(),
+                Some(NearToken::from_micronear(1200)), // should more than 1250 microNEAR
+                None::<&str>,
+            ),
+        )
+        .await;
+    assert!(result.is_err());
+
+    env.lst.ping().await?;
+
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.near_balance().await?, lst_balance_before);
+    assert_eq!(alice.near_balance().await?, alice_balance_before);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult {
+    let env = Env::builder().without_storage_deposit().build().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let lst_balance_before = env.lst.near_balance().await?;
+
+    env.lst
+        .set_validator_public_key(
+            PublicKey::from_str("ed25519:5dAFYwUqY6dB5sh1grQbdu95CiiYyWeJoMVtumMoZW1").unwrap(),
+        )
+        .await?;
+
+    // Now stake should fail because of the validator public key.
+    let result = env
+        .lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(
+                alice.id(),
+                Some(NearToken::from_micronear(1200)), // should be 1250 microNEAR
+                None::<&str>,
+            ),
+        )
+        .await;
+    assert!(result.is_err());
+
+    env.lst.ping().await?;
+
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.near_balance().await?, lst_balance_before);
+    assert_eq!(alice.near_balance().await?, alice_balance_before);
 
     Ok(())
 }
