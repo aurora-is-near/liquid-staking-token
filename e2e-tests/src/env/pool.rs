@@ -1,5 +1,5 @@
 use near_api::types::transaction::result::ExecutionSuccess;
-use near_api::{Data, NearToken};
+use near_api::{Data, NearToken, PublicKey};
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json;
 use near_sdk::serde_json::Value;
@@ -21,6 +21,10 @@ pub trait StakingPool {
     ) -> anyhow::Result<ExecutionSuccess>;
     async fn ping(&self) -> anyhow::Result<ExecutionSuccess>;
     async fn set_protocol_fee_bps(&self, bps: u16) -> anyhow::Result<ExecutionSuccess>;
+    async fn set_validator_public_key(
+        &self,
+        validator_public_key: PublicKey,
+    ) -> anyhow::Result<ExecutionSuccess>;
     async fn get_reward_fee_fraction(&self) -> anyhow::Result<Value>;
     async fn get_exchange_rate(&self) -> anyhow::Result<f64>;
     async fn get_number_of_accounts(&self) -> anyhow::Result<u64>;
@@ -88,8 +92,7 @@ impl StakingPool for Contract {
     }
 
     async fn set_protocol_fee_bps(&self, bps: u16) -> anyhow::Result<ExecutionSuccess> {
-        let result = self
-            .inner
+        self.inner
             .call_function(
                 "set_protocol_fee_bps",
                 serde_json::json!({ "fee_bps": bps }),
@@ -97,9 +100,26 @@ impl StakingPool for Contract {
             .transaction()
             .with_signer(self.id().clone(), self.signer())
             .send_to(self.config())
-            .await?;
+            .await?
+            .into_result()
+            .map_err(Into::into)
+    }
 
-        result.into_result().map_err(Into::into)
+    async fn set_validator_public_key(
+        &self,
+        validator_public_key: PublicKey,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.inner
+            .call_function(
+                "set_validator_public_key",
+                serde_json::json!({ "validator_public_key": validator_public_key }),
+            )
+            .transaction()
+            .with_signer(self.id().clone(), self.signer())
+            .send_to(self.config())
+            .await?
+            .into_result()
+            .map_err(Into::into)
     }
 
     async fn get_reward_fee_fraction(&self) -> anyhow::Result<Value> {
