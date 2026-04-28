@@ -9,6 +9,7 @@ use crate::env::pool::StakingPool;
 use crate::env::{
     Env, INIT_LOCK, INITIAL_BALANCE, ft::FungibleToken, mt::MultiToken, native::Native,
 };
+use crate::tests::stake::HALF_OF_STAKE;
 use crate::tests::{
     ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
 };
@@ -126,7 +127,8 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
 -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
-    let alice_native_balance_before = alice.near_balance().await?;
+    let alice_balance_before = alice.near_balance().await?;
+    let lst_balance_before = env.lst.near_balance().await?;
     let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
 
     env.lst
@@ -143,23 +145,18 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
-
-    assert_eq!(
-        env.intents.mt_balance_of(alice.id(), env.lst.id()).await?,
-        ZERO_AMOUNT
-    ); // No tokens on intents minted
 
     env.wait_unstake_cooldown().await?;
 
     env.lst.withdraw(alice, &refund_message).await?;
 
-    let alice_native_balance_after = alice.near_balance().await?;
-    assert_eq!(alice_native_balance_before, alice_native_balance_after);
+    assert_eq!(alice_balance_before, alice.near_balance().await?);
+    assert_eq!(lst_balance_before, env.lst.near_balance().await?);
 
     Ok(())
 }
@@ -647,6 +644,122 @@ async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(env.lst.near_balance().await?, lst_balance_before);
     assert_eq!(alice.near_balance().await?, alice_balance_before);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_and_sending_lst_tokens_to_contract_with_refund() -> TestResult {
+    let env = Env::builder().build().await?;
+    let lst_receiver = env.deploy_ft_receiver().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message_with_refund(
+                lst_receiver.id(),
+                None,
+                Some(HALF_OF_STAKE),
+                Some(&refund_message),
+            ),
+        )
+        .await?;
+
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(HALF_OF_STAKE)
+    );
+    assert_eq!(
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT),
+        alice_balance_before.total
+    );
+
+    env.wait_unstake_cooldown().await?;
+    env.lst.withdraw(alice, &refund_message).await?;
+
+    assert_eq!(
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(HALF_OF_STAKE),
+        alice_balance_before.total
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "Requires panic in the unstake flow; cannot be triggered in e2e"]
+async fn test_stake_native_and_sending_lst_tokens_to_contract_with_refund_and_unstake_panic()
+-> TestResult {
+    let env = Env::builder().build().await?;
+    let lst_receiver = env.deploy_ft_receiver().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message_with_refund(
+                lst_receiver.id(),
+                None,
+                Some(HALF_OF_STAKE),
+                Some(&refund_message),
+            ),
+        )
+        .await?;
+
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(
+        env.lst.ft_balance_of(lst_receiver.id()).await?,
+        HALF_OF_STAKE
+    );
+    assert_eq!(
+        env.lst.ft_balance_of(env.lst.id()).await?,
+        INIT_LOCK.saturating_add(HALF_OF_STAKE) // Refunded tokens are stuck on the contract because of the panic in the unstake flow.
+    );
+
+    assert_eq!(
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT),
+        alice_balance_before.total
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    let result = env.lst.withdraw(alice, &refund_message).await;
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Account is not found in the unstake queue")
+    );
+
+    assert_eq!(
+        alice
+            .near_balance()
+            .await?
+            .total
+            .saturating_add(STAKE_AMOUNT),
+        alice_balance_before.total
+    );
 
     Ok(())
 }

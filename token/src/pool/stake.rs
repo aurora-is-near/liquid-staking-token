@@ -5,6 +5,7 @@ use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require};
 
+use crate::pool::unstake::UnstakeTrigger;
 use crate::pool::{
     MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
 };
@@ -185,7 +186,14 @@ impl LiquidStakingToken {
             return PromiseOrValue::Value(0.into());
         }
 
-        self.handle_unstaking(refund, &unstake_msg).into()
+        near_sdk::log!(
+            "Received refund {} of LST tokens from {}, initiate unstaking",
+            refund.as_yoctonear(),
+            args.receiver_id
+        );
+
+        self.handle_unstaking(refund, &unstake_msg, UnstakeTrigger::RefundByContract)
+            .into()
     }
 }
 
