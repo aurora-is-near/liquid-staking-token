@@ -8,8 +8,36 @@ use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);
 
+/// Specifies the type of token to withdraw and associated withdrawal parameters.
+///
+/// This enum is used to distinguish between native NEAR token withdrawals and
+/// wrapped NEAR (wNEAR) token withdrawals, where wNEAR withdrawals may require
+/// additional configuration such as storage deposits and gas limits.
+///
+/// # Variants
+///
+/// * `Native` - Represents a withdrawal of native NEAR tokens. This is the simplest
+///   form of withdrawal with no additional parameters.
+///
+/// * `Wnear` - Represents a withdrawal of wrapped NEAR tokens with optional
+///   configuration parameters:
+///   - `storage_deposit`: Optional storage deposit amount required for the wNEAR
+///     contract interaction. If `None`, no storage deposit will be made.
+///   - `msg`: Optional message string that can be passed to the wNEAR contract
+///     during withdrawal. Omitted from serialization if `None`.
+///   - `memo`: Optional memo string for additional transaction metadata or notes.
+///     Omitted from serialization if `None`.
+///   - `min_gas`: Optional minimum gas amount to attach to the wNEAR withdrawal
+///     transaction. If `None`, a default gas amount will be used.
+///
+/// # Serialization
+///
+/// The enum uses lowercase variant names when serialized (via `#[serde(rename_all = "lowercase")]`).
+/// Optional fields are skipped during serialization when they contain `None` values.
+///
+/// Supports both JSON and Borsh serialization formats for NEAR blockchain compatibility.
 #[derive(Debug, Clone)]
-#[near(serializers = [json])]
+#[near(serializers = [json, borsh])]
 #[serde(rename_all = "lowercase")]
 pub enum WithdrawTokens {
     Native,
@@ -25,8 +53,41 @@ pub enum WithdrawTokens {
     },
 }
 
+/// Represents a message for unstaking tokens and specifying withdrawal parameters.
+///
+/// This structure is used to define the details of an unstake operation, including
+/// the recipient of the unstaked tokens and the type of tokens to be withdrawn.
+///
+/// # Fields
+///
+/// * `receiver_id` - The NEAR account ID that will receive the unstaked tokens.
+///   This is the destination account where the tokens will be transferred after
+///   the unstaking process is complete.
+///
+/// * `withdraw_tokens` - Specifies which type of tokens should be withdrawn during
+///   the unstaking operation. See [`WithdrawTokens`] for available token types.
+///
+/// # Serialization
+///
+/// This structure supports both JSON and Borsh serialization formats through the
+/// `#[near(serializers = [json, borsh])]` attribute, making it compatible with
+/// NEAR protocol's storage and cross-contract communication requirements.
+///
+/// When serialized to JSON, field names are converted to lowercase via the
+/// `#[serde(rename_all = "lowercase")]` attribute.
+///
+/// # Examples
+///
+/// ```ignore
+/// use near_sdk::AccountId;
+///
+/// let unstake_msg = UnstakeMessage {
+///     receiver_id: "alice.near".parse().unwrap(),
+///     withdraw_tokens: WithdrawTokens::Native,
+/// };
+/// ```
 #[derive(Debug, Clone)]
-#[near(serializers = [json])]
+#[near(serializers = [json, borsh])]
 #[serde(rename_all = "lowercase")]
 pub struct UnstakeMessage {
     /// The account ID to which the staked tokens should be sent.
@@ -36,21 +97,32 @@ pub struct UnstakeMessage {
 }
 
 impl UnstakeMessage {
-    /// Computes a cryptographic hash of the stake message.
+    /// Computes the cryptographic hash of this object using the Keccak-256 algorithm.
     ///
-    /// This method serializes the `StakeMessage` to JSON format and then applies
-    /// the Keccak-256 hashing algorithm to produce a unique hash value.
+    /// This method serializes the object using Borsh serialization and then applies
+    /// the Keccak-256 hashing algorithm to produce a 32-byte hash value.
     ///
     /// # Returns
     ///
-    /// Returns `Ok(CryptoHash)` containing the Keccak-256 hash of the serialized message,
-    /// or `Err` if the serialization to JSON fails.
+    /// * `Ok(CryptoHash)` - A 32-byte cryptographic hash of the serialized object
     ///
     /// # Errors
     ///
-    /// Returns a `near_sdk::serde_json::Error` if the stake message cannot be serialized to JSON.
-    pub fn hash(&self) -> Result<CryptoHash, near_sdk::serde_json::Error> {
-        near_sdk::serde_json::to_vec(self).map(env::keccak256_array)
+    ///  `Err(std::io::Error)` if the object cannot be serialized in borsh format.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let hash = my_object.hash()?;
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// - The hash is deterministic: the same object will always produce the same hash
+    /// - Uses Keccak-256, which is the same hashing algorithm used by Ethereum
+    /// - The object must implement the `BorshSerialize` trait for this to work
+    pub fn hash(&self) -> Result<CryptoHash, std::io::Error> {
+        near_sdk::borsh::to_vec(self).map(env::keccak256_array)
     }
 }
 
@@ -81,7 +153,7 @@ impl LiquidStakingToken {
         } else {
             let lst_yocto = lst_amount.as_yoctonear();
             near_sdk::log!("Error while unstaking, refund: {lst_yocto} LST");
-
+            // TODO: Do not return tokens if unstaking initiated because of refund of LST tokens from staking
             PromiseOrValue::Value(lst_yocto.into())
         }
     }
