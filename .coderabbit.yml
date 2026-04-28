@@ -1,2 +1,29 @@
 reviews:
-  profile: assertive
+  profile: "chill"               # Default profile for all files
+
+  path_filters:
+    - "!target/**"            # Ignore build artifacts
+    - "!*.lock"               # Ignore lock files
+
+  path_instructions:
+    - path: "token/**"
+      instructions: |
+        Review this crate with an assertive profile.
+        Be strict about:
+        - Correctness of token accounting, share/balance math, and exchange-rate invariants
+        - Epoch-batching logic: only one active unbonding batch at a time; withdraw_all must precede each new unstake
+        - Unsafe code usage — flag any block without a documented safety justification
+        - Panicking code paths (unwrap, expect, index out of bounds) in non-test code
+        - Missing or inadequate error handling
+        - Public API surface — every pub fn/struct/enum must have a doc comment
+        - Arithmetic overflow/underflow risks (prefer checked_*/saturating_* over raw ops)
+        - State mutation ordering to prevent re-entrancy or inconsistent intermediate states
+
+    - path: "e2e-tests/**"
+      instructions: |
+        This crate contains end-to-end integration tests.
+        Apply a relaxed review:
+        - Accept test-only unwrap/expect as long as failures produce clear messages
+        - Prioritise test clarity and readability over micro-optimisations
+        - Flag only genuine correctness issues in test setup/assertions
+        - Helper utilities and fixtures can be loosely documented

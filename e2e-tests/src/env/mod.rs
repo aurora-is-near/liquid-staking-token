@@ -25,14 +25,16 @@ const INTENTS: &str = "intents.sandbox";
 const LST: &str = "lst.sandbox";
 const ALICE: &str = "alice.sandbox";
 const BOB: &str = "bob.sandbox";
+const FT_RECEIVER: &str = "ft_receiver.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
 
-pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_006_020_000);
+pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_007_020_000);
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
 pub const BLOCKS_PER_EPOCH: u64 = 50;
 pub const INITIAL_BALANCE: NearToken = NearToken::from_near(1_000_000);
 pub static LST_ARTIFACT: OnceCell<Vec<u8>> = OnceCell::const_new();
+pub static FT_RECEIVER_ARTIFACT: OnceCell<Vec<u8>> = OnceCell::const_new();
 pub static SIGNER: LazyLock<Arc<Signer>> = LazyLock::new(|| {
     Signer::from_secret_key(
         near_sandbox::config::DEFAULT_GENESIS_ACCOUNT_PRIVATE_KEY
@@ -134,6 +136,22 @@ impl Env {
         }
 
         Ok(())
+    }
+
+    pub async fn deploy_ft_receiver(&self) -> anyhow::Result<Contract> {
+        let ft_receiver = create_contract(
+            &self.config,
+            FT_RECEIVER,
+            ft_receiver_wasm().await?,
+            serde_json::json!({}),
+        )
+        .await?;
+
+        self.lst
+            .ft_storage_deposit(&self.lst.as_account(), ft_receiver.id())
+            .await?;
+
+        Ok(ft_receiver)
     }
 
     pub async fn epoch_height(&self, block_height: Option<u64>) -> anyhow::Result<u64> {
@@ -341,6 +359,24 @@ async fn lst_wasm() -> anyhow::Result<Vec<u8>> {
         .cloned()
 }
 
+async fn ft_receiver_wasm() -> anyhow::Result<Vec<u8>> {
+    FT_RECEIVER_ARTIFACT
+        .get_or_try_init(async || {
+            let artifact = cargo_near_build::build(
+                cargo_near_build::BuildOpts::builder()
+                    .manifest_path("test-contracts/ft-receiver/Cargo.toml")
+                    .no_abi(true)
+                    .no_embed_abi(true)
+                    .no_doc(true)
+                    .build(),
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to build FT receiver: {e}"))?;
+            read_wasm(artifact.path).await
+        })
+        .await
+        .cloned()
+}
+
 async fn read_wasm<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Vec<u8>> {
     tokio::fs::read(path).await.map_err(Into::into)
 }
@@ -408,6 +444,11 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
             },
             GenesisAccount {
                 account_id: INTENTS.parse().unwrap(),
+                balance: INITIAL_BALANCE,
+                ..Default::default()
+            },
+            GenesisAccount {
+                account_id: FT_RECEIVER.parse().unwrap(),
                 balance: INITIAL_BALANCE,
                 ..Default::default()
             },
