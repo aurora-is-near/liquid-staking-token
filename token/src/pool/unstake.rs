@@ -85,6 +85,16 @@ impl LiquidStakingToken {
             PromiseOrValue::Value(lst_yocto.into())
         }
     }
+
+    #[private]
+    pub fn modify_state_after_unstake(
+        &mut self,
+        total_staked_tokens: NearToken,
+        lst_tokens: NearToken,
+    ) {
+        self.statistics.total_staked_amount = total_staked_tokens;
+        self.internal_withdraw(&env::current_account_id(), lst_tokens);
+    }
 }
 
 impl LiquidStakingToken {
@@ -130,12 +140,7 @@ impl LiquidStakingToken {
         )
         .with_unused_gas_weight(0)
         .with_static_gas(MODIFY_STATE_AFTER_STAKE_GAS)
-        .modify_state_after_stake(
-            &env::current_account_id(),
-            new_total_staked_amount,
-            lst_amount,
-            false,
-        )
+        .modify_state_after_unstake(new_total_staked_amount, lst_amount)
         .then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
