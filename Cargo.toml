@@ -9,7 +9,7 @@ resolver = "3"
 members = [
     "token",
     "e2e-tests",
-    "e2e-tests/test-contracts/mt-receiver",
+    "e2e-tests/test-contracts/ft-receiver",
 ]
 
 [workspace.dependencies]

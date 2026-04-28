@@ -1,5 +1,4 @@
 use liquid_staking_token::pool::WithdrawTokens;
-use near_api::AccountId;
 use near_api::NearToken;
 use near_api::types::transaction::result::TransactionResultError;
 use testresult::TestResult;
@@ -38,13 +37,8 @@ fn assert_stake_amount_error<T>(result: anyhow::Result<T>) {
     }
 }
 
-fn intents_partial_refund_message(receiver_id: &AccountId, refund_amount: NearToken) -> String {
-    near_sdk::serde_json::json!({
-        "receiver_id": receiver_id,
-        "msg": refund_amount.as_yoctonear().to_string(),
-        "min_gas": null,
-    })
-    .to_string()
+fn partial_refund_message(refund_amount: NearToken) -> String {
+    refund_amount.as_yoctonear().to_string()
 }
 
 #[tokio::test]
@@ -170,11 +164,10 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
 }
 
 #[tokio::test]
-async fn test_stake_with_native_near_and_partial_intents_refund_with_refund_message() -> TestResult
-{
+async fn test_stake_with_native_near_and_partial_nep141_refund_with_refund_message() -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
-    let mt_receiver = env.deploy_mt_receiver().await?;
+    let ft_receiver = env.deploy_ft_receiver().await?;
     let alice_native_balance_before = alice.near_balance().await?;
     let consumed_amount = STAKE_AMOUNT.saturating_sub(PARTIAL_REFUND_AMOUNT);
     let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
@@ -184,12 +177,9 @@ async fn test_stake_with_native_near_and_partial_intents_refund_with_refund_mess
             alice,
             STAKE_AMOUNT,
             stake_message_with_refund(
-                env.intents.id(),
+                ft_receiver.id(),
                 None,
-                Some(intents_partial_refund_message(
-                    mt_receiver.id(),
-                    PARTIAL_REFUND_AMOUNT,
-                )),
+                Some(partial_refund_message(PARTIAL_REFUND_AMOUNT)),
                 Some(&refund_message),
             ),
         )
@@ -200,13 +190,7 @@ async fn test_stake_with_native_near_and_partial_intents_refund_with_refund_mess
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(
-        env.lst.ft_balance_of(env.intents.id()).await?,
-        consumed_amount
-    );
-    assert_eq!(
-        env.intents
-            .mt_balance_of(mt_receiver.id(), env.lst.id())
-            .await?,
+        env.lst.ft_balance_of(ft_receiver.id()).await?,
         consumed_amount
     );
     assert_eq!(
@@ -230,6 +214,10 @@ async fn test_stake_with_native_near_and_partial_intents_refund_with_refund_mess
 
     assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
     assert_eq!(
+        env.lst.ft_balance_of(ft_receiver.id()).await?,
+        consumed_amount
+    );
+    assert_eq!(
         alice_native_balance_before
             .total
             .saturating_sub(alice.near_balance().await?.total),
@@ -240,25 +228,21 @@ async fn test_stake_with_native_near_and_partial_intents_refund_with_refund_mess
 }
 
 #[tokio::test]
-async fn test_stake_with_native_near_and_partial_intents_refund_without_refund_message()
--> TestResult {
+async fn test_stake_with_native_near_and_partial_nep141_refund_without_refund_message() -> TestResult
+{
     let env = Env::builder().build().await?;
     let alice = env.alice();
-    let mt_receiver = env.deploy_mt_receiver().await?;
+    let ft_receiver = env.deploy_ft_receiver().await?;
     let alice_native_balance_before = alice.near_balance().await?;
-    let consumed_amount = STAKE_AMOUNT.saturating_sub(PARTIAL_REFUND_AMOUNT);
 
     env.lst
         .stake(
             alice,
             STAKE_AMOUNT,
             stake_message(
-                env.intents.id(),
+                ft_receiver.id(),
                 None,
-                Some(intents_partial_refund_message(
-                    mt_receiver.id(),
-                    PARTIAL_REFUND_AMOUNT,
-                )),
+                Some(partial_refund_message(PARTIAL_REFUND_AMOUNT)),
             ),
         )
         .await?;
@@ -267,13 +251,7 @@ async fn test_stake_with_native_near_and_partial_intents_refund_without_refund_m
         env.lst.near_balance().await?.locked,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
-    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, STAKE_AMOUNT);
-    assert_eq!(
-        env.intents
-            .mt_balance_of(mt_receiver.id(), env.lst.id())
-            .await?,
-        consumed_amount
-    );
+    assert_eq!(env.lst.ft_balance_of(ft_receiver.id()).await?, STAKE_AMOUNT);
     assert_eq!(
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
