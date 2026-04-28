@@ -58,8 +58,8 @@ async fn test_stake_with_native_near_and_get_on_intents() -> TestResult {
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, STAKE_AMOUNT);
     assert_eq!(
@@ -97,8 +97,8 @@ async fn test_stake_with_native_near_and_attempt_to_send_on_intents_with_bad_acc
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, STAKE_AMOUNT); // Tokens stuck on the contract balance
     assert_eq!(
@@ -184,8 +184,8 @@ async fn test_stake_with_native_near_and_partial_nep141_refund_with_refund_messa
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(
         env.lst.ft_balance_of(ft_receiver.id()).await?,
@@ -246,8 +246,8 @@ async fn test_stake_with_native_near_and_partial_nep141_refund_without_refund_me
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(ft_receiver.id()).await?, STAKE_AMOUNT);
     assert_eq!(
@@ -552,8 +552,8 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     // No tokens minted, total supply unchanged.
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
 
     assert_eq!(

@@ -54,4 +54,4 @@ jobs:
           curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/download/cargo-near-v0.20.0/cargo-near-installer.sh | sh
           curl -LsSf https://get.nexte.st/0.9/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
       - name: Run tests
-        run: cargo nextest run --test-threads 12 --no-fail-fast
+        run: cargo nextest run --test-threads 10 --no-fail-fast
