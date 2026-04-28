@@ -1,12 +1,10 @@
-version: "2"
- 
 reviews:
   profile: "chill"               # Default profile for all files
- 
+
   path_filters:
-    - "!**/target/**"            # Ignore build artifacts
-    - "!**/*.lock"               # Ignore lock files
- 
+    - "!target/**"            # Ignore build artifacts
+    - "!*.lock"               # Ignore lock files
+
   path_instructions:
     - path: "token/**"
       instructions: |
@@ -20,7 +18,7 @@ reviews:
         - Public API surface — every pub fn/struct/enum must have a doc comment
         - Arithmetic overflow/underflow risks (prefer checked_*/saturating_* over raw ops)
         - State mutation ordering to prevent re-entrancy or inconsistent intermediate states
- 
+
     - path: "e2e-tests/**"
       instructions: |
         This crate contains end-to-end integration tests.
@@ -29,22 +27,3 @@ reviews:
         - Prioritise test clarity and readability over micro-optimisations
         - Flag only genuine correctness issues in test setup/assertions
         - Helper utilities and fixtures can be loosely documented
- 
-  auto_review:
-    enabled: true
-    drafts: false
-    base_branches:
-      - "main"
-      - "develop"
- 
-  finishing_touches:
-    docstrings:
-      enabled: true
- 
-  tools:
-    clippy:
-      enabled: true
- 
-chat:
-  auto_reply: true
- 

@@ -25,9 +25,10 @@ const INTENTS: &str = "intents.sandbox";
 const LST: &str = "lst.sandbox";
 const ALICE: &str = "alice.sandbox";
 const BOB: &str = "bob.sandbox";
+const FT_RECEIVER: &str = "ft_receiver.sandbox";
 const COOL_DOWN_PERIOD: u64 = 4; // in epochs
 
-pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_006_020_000);
+pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_007_020_000);
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
 pub const BLOCKS_PER_EPOCH: u64 = 50;
@@ -140,7 +141,7 @@ impl Env {
     pub async fn deploy_ft_receiver(&self) -> anyhow::Result<Contract> {
         let ft_receiver = create_contract(
             &self.config,
-            "test.near",
+            FT_RECEIVER,
             ft_receiver_wasm().await?,
             serde_json::json!({}),
         )
@@ -443,6 +444,11 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
             },
             GenesisAccount {
                 account_id: INTENTS.parse().unwrap(),
+                balance: INITIAL_BALANCE,
+                ..Default::default()
+            },
+            GenesisAccount {
+                account_id: FT_RECEIVER.parse().unwrap(),
                 balance: INITIAL_BALANCE,
                 ..Default::default()
             },
