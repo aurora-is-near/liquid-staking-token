@@ -424,8 +424,8 @@ async fn test_stake_with_wnear_and_ft_on_transfer_panic_with_native_refund() -> 
     assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
 
     assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
@@ -490,8 +490,8 @@ async fn test_stake_with_wnear_and_partial_nep141_refund_with_refund_message() -
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(
         env.lst.ft_balance_of(ft_receiver.id()).await?,
@@ -592,8 +592,8 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         .await?;
 
     assert_eq!(
-        env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+        env.lst.get_total_balance().await?,
+        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(
         alice.near_balance().await?.total,
