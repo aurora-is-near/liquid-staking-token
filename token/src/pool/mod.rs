@@ -7,7 +7,7 @@ use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 pub use stake::StakeMessage;
 pub use stats::PoolStatistics;
-pub use unstake::{UnstakeMessage, WithdrawTokens};
+pub use unstake::{UnstakeMessage, UnstakeTrigger, WithdrawTokens};
 pub use withdraw::UserDistribution;
 
 mod admin;

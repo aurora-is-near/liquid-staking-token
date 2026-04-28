@@ -126,6 +126,16 @@ impl UnstakeMessage {
     }
 }
 
+/// Represents the trigger for an unstaking process.
+#[derive(Debug, Clone)]
+#[near(serializers = [json])]
+pub enum UnstakeTrigger {
+    /// The unstake was initiated by the user.
+    UserRequest,
+    /// The unstake was triggered because of a refund by the contract.
+    RefundByContract,
+}
+
 #[near]
 impl LiquidStakingToken {
     #[private]
@@ -134,6 +144,7 @@ impl LiquidStakingToken {
         lst_amount: NearToken,
         near_amount: NearToken,
         msg_hash: CryptoHash,
+        unstake_trigger: UnstakeTrigger,
     ) -> PromiseOrValue<U128> {
         if env::promise_result_checked(0, 0).is_ok() {
             near_sdk::log!("Unstake successful");
@@ -151,10 +162,21 @@ impl LiquidStakingToken {
 
             PromiseOrValue::Value(0.into())
         } else {
-            let lst_yocto = lst_amount.as_yoctonear();
-            near_sdk::log!("Error while unstaking, refund: {lst_yocto} LST");
-            // TODO: Do not return tokens if unstaking initiated because of refund of LST tokens from staking
-            PromiseOrValue::Value(lst_yocto.into())
+            match unstake_trigger {
+                UnstakeTrigger::UserRequest => {
+                    let lst_yocto = lst_amount.as_yoctonear();
+                    near_sdk::log!(
+                        "Error while unstaking by user request, refund: {lst_yocto} LST"
+                    );
+                    PromiseOrValue::Value(lst_yocto.into())
+                }
+                UnstakeTrigger::RefundByContract => {
+                    near_sdk::log!(
+                        "Error while unstaking because of refund of LST tokens from staking"
+                    );
+                    PromiseOrValue::Value(0.into())
+                }
+            }
         }
     }
 
@@ -174,6 +196,7 @@ impl LiquidStakingToken {
         &mut self,
         lst_amount: NearToken,
         args: &UnstakeMessage,
+        unstake_trigger: UnstakeTrigger,
     ) -> Promise {
         require!(
             lst_amount > NearToken::ZERO,
@@ -217,7 +240,7 @@ impl LiquidStakingToken {
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
                 .with_static_gas(ON_UNSTAKE_GAS)
-                .on_unstake(lst_amount, unstake_amount, msg_hash),
+                .on_unstake(lst_amount, unstake_amount, msg_hash, unstake_trigger),
         )
     }
 }
