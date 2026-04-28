@@ -620,7 +620,7 @@ async fn test_stake_native_with_storage_deposit_less_than_needed() -> TestResult
 
 #[tokio::test]
 async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult {
-    let env = Env::builder().without_storage_deposit().build().await?;
+    let env = Env::builder().build().await?;
     let alice = env.alice();
     let alice_balance_before = alice.near_balance().await?;
     let lst_balance_before = env.lst.near_balance().await?;
@@ -637,11 +637,7 @@ async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(
-                alice.id(),
-                Some(NearToken::from_micronear(1200)), // should be 1250 microNEAR
-                None::<&str>,
-            ),
+            stake_message(alice.id(), None, None::<&str>),
         )
         .await;
     assert!(result.is_err());
