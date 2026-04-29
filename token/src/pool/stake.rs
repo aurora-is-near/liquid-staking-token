@@ -5,6 +5,7 @@ use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require};
 
+use crate::pool::unstake::UnstakeTrigger;
 use crate::pool::{
     MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
 };
@@ -101,7 +102,6 @@ impl LiquidStakingToken {
     #[private]
     pub fn on_stake_and_deposit(
         &mut self,
-        deposit_token: DepositToken,
         deposit_amount: NearToken,
         lst_tokens: NearToken,
         args: StakeMessage,
@@ -134,21 +134,18 @@ impl LiquidStakingToken {
             // Reachable only if `modify_state_after_stake` (the immediate
             // predecessor) panics — the underlying `stake` action's failure
             // does not propagate here. Kept as a defensive recovery path.
-            Err(_) => match deposit_token {
-                DepositToken::Native => env::panic_str("Error while staking native NEAR"),
-                DepositToken::Wnear => ext_wnear::ext(self.wnear_id.clone())
-                    .with_attached_deposit(deposit_amount)
-                    .with_static_gas(NEAR_DEPOSIT_GAS)
-                    .with_unused_gas_weight(1)
-                    .near_deposit()
-                    .then(
-                        Self::ext(env::current_account_id())
-                            .with_unused_gas_weight(0)
-                            .with_static_gas(REFUND_WNEAR_DEPOSIT_GAS)
-                            .refund_wnear_deposit(deposit_amount),
-                    )
-                    .into(),
-            },
+            Err(_) => ext_wnear::ext(self.wnear_id.clone())
+                .with_attached_deposit(deposit_amount)
+                .with_static_gas(NEAR_DEPOSIT_GAS)
+                .with_unused_gas_weight(1)
+                .near_deposit()
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_unused_gas_weight(0)
+                        .with_static_gas(REFUND_WNEAR_DEPOSIT_GAS)
+                        .refund_wnear_deposit(deposit_amount),
+                )
+                .into(),
         }
     }
 
@@ -189,7 +186,14 @@ impl LiquidStakingToken {
             return PromiseOrValue::Value(0.into());
         }
 
-        self.handle_unstaking(refund, &unstake_msg).into()
+        near_sdk::log!(
+            "Received refund {} of LST tokens from {}, initiate unstaking",
+            refund.as_yoctonear(),
+            args.receiver_id
+        );
+
+        self.handle_unstaking(refund, &unstake_msg, UnstakeTrigger::RefundByContract)
+            .into()
     }
 }
 
@@ -248,7 +252,7 @@ impl LiquidStakingToken {
 
         let mut promise = Promise::new(env::current_account_id())
             .refund_to(env::refund_to_account_id())
-            .transfer(env::attached_deposit())
+            .transfer(stake_amount)
             .stake(new_total_staked_amount, self.validator_public_key.clone());
 
         if let Some(storage_deposit) = args.storage_deposit {
@@ -269,10 +273,15 @@ impl LiquidStakingToken {
                 is_contract_staking,
             );
 
-        promise.then(
-            Self::ext(env::current_account_id())
-                .with_unused_gas_weight(1)
-                .on_stake_and_deposit(deposit_token, deposit_amount, lst_tokens, args),
-        )
+        // LST tokens will be moved via `ft_transfer` and deposited tokens are native NEAR
+        if args.msg.is_none() && matches!(deposit_token, DepositToken::Native) {
+            promise
+        } else {
+            promise.then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(1)
+                    .on_stake_and_deposit(deposit_amount, lst_tokens, args),
+            )
+        }
     }
 }

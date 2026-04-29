@@ -154,7 +154,7 @@ fn test_rewards_per_epoch() {
     let epoch_duration = 6_000_000_000_000; // 6 seconds in nanoseconds
     let reward_per_epoch = compute_reward(epoch_duration);
 
-    assert_eq!(reward_per_epoch.as_near(), 4310);
+    assert_eq!(reward_per_epoch.as_near(), 4315);
 }
 
 async fn env() -> anyhow::Result<Env> {

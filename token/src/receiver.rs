@@ -3,6 +3,7 @@ use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, NearToken, PromiseOrValue, env, near, serde_json};
 
+use crate::pool::UnstakeTrigger;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 #[near]
@@ -27,8 +28,12 @@ impl FungibleTokenReceiver for LiquidStakingToken {
                 .unwrap_or_else(|_| env::panic_str("Invalid format of the UnstakeMessage"));
             let unstake_amount = NearToken::from_yoctonear(amount.0);
 
-            self.handle_unstaking(unstake_amount, &unstake_message)
-                .into()
+            self.handle_unstaking(
+                unstake_amount,
+                &unstake_message,
+                UnstakeTrigger::UserRequest,
+            )
+            .into()
         } else {
             env::panic_str("Invalid token account ID");
         }
