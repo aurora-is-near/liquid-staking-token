@@ -3,6 +3,7 @@ use near_api::NearToken;
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json;
 
+mod asserts;
 mod delegators;
 mod multi_user;
 mod pool;

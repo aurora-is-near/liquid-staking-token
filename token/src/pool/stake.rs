@@ -93,17 +93,26 @@ impl LiquidStakingToken {
     pub fn modify_state_after_stake(
         &mut self,
         account_id: &AccountId,
-        total_staked_tokens: NearToken,
+        stake_amount: NearToken,
         deposit_amount: NearToken,
         lst_tokens: NearToken,
         is_contract_staking: bool,
-    ) {
+    ) -> Promise {
         if !is_contract_staking {
             self.statistics.increase_total_balance(deposit_amount);
         }
 
-        self.statistics.total_staked_amount = total_staked_tokens;
+        self.statistics.total_staked_amount = self
+            .statistics
+            .total_staked_amount
+            .checked_add(stake_amount)
+            .unwrap_or_else(|| env::panic_str("Overflow while increasing total staked amount"));
         self.internal_deposit(account_id, lst_tokens);
+
+        Promise::new(env::current_account_id()).stake(
+            self.statistics.total_staked_amount,
+            self.validator_public_key.clone(),
+        )
     }
 
     #[private]
@@ -277,7 +286,7 @@ impl LiquidStakingToken {
             .with_unused_gas_weight(0)
             .modify_state_after_stake(
                 &args.receiver_id,
-                new_total_staked_amount,
+                stake_amount,
                 deposit_amount,
                 lst_tokens,
                 is_contract_staking,
