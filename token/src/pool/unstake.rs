@@ -149,7 +149,11 @@ impl LiquidStakingToken {
         if env::promise_result_checked(0, 0).is_ok() {
             near_sdk::log!("Unstake successful");
             let epoch_id = env::epoch_height();
-            let user_distribution = self.unstake_queue.entry(msg_hash).or_default();
+            let user_distribution = self
+                .unstake_queue
+                .entry(msg_hash)
+                .or_default()
+                .as_inner_unchecked_mut();
 
             user_distribution.withdrawal_amount = user_distribution
                 .withdrawal_amount
