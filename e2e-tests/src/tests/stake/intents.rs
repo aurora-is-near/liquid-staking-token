@@ -5,7 +5,7 @@ use crate::env::ft::FungibleToken;
 use crate::env::mt::MultiToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
-use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
+use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
 use crate::tests::{
     ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message_with_refund, unstake_message,
 };
@@ -42,7 +42,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
 
     assert_eq!(
         env.lst.get_total_balance().await?,
-        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
+        INIT_BALANCE.saturating_add(STAKE_AMOUNT)
     );
     assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
@@ -100,12 +100,12 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     // Locked balance increased by STAKE_AMOUNT for cooldown period only.
     assert_eq!(
         env.lst.get_total_balance().await?,
-        INITIAL_BALANCE.saturating_add(STAKE_AMOUNT)
+        INIT_BALANCE.saturating_add(STAKE_AMOUNT)
     );
 
     assert_eq!(
         alice.near_balance().await?.total,
-        INITIAL_BALANCE
+        INIT_BALANCE
             .saturating_sub(STAKE_AMOUNT)
             .saturating_sub(ONE_YOCTO)
     );
@@ -123,7 +123,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     );
     assert_eq!(
         alice.near_balance().await?.total,
-        INITIAL_BALANCE
+        INIT_BALANCE
             .saturating_sub(STAKE_AMOUNT)
             .saturating_sub(ONE_YOCTO)
     );
@@ -137,7 +137,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     assert_eq!(env.lst.ft_balance_of(bob.id()).await?, ZERO_AMOUNT);
     assert_eq!(
         bob.near_balance().await?.total,
-        INITIAL_BALANCE.saturating_sub(ONE_YOCTO)
+        INIT_BALANCE.saturating_sub(ONE_YOCTO)
     );
 
     Ok(())

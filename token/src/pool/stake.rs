@@ -51,6 +51,7 @@ impl LiquidStakingToken {
     #[pause]
     #[payable]
     pub fn stake(&mut self, args: StakeMessage) -> Promise {
+        let sender_id = env::predecessor_account_id();
         let deposit_amount = env::attached_deposit();
         let is_contract_staking = env::predecessor_account_id() == env::current_account_id();
 
@@ -62,6 +63,7 @@ impl LiquidStakingToken {
         }));
 
         self.stake_and_deposit(
+            sender_id,
             args,
             deposit_amount,
             DepositToken::Native,
@@ -70,7 +72,12 @@ impl LiquidStakingToken {
     }
 
     #[private]
-    pub fn on_near_withdraw(&mut self, amount: U128, args: StakeMessage) -> Promise {
+    pub fn on_near_withdraw(
+        &mut self,
+        sender_id: AccountId,
+        amount: U128,
+        args: StakeMessage,
+    ) -> Promise {
         require!(
             env::promise_result_checked(0, 0).is_ok(),
             "Failed to withdraw NEAR from wNEAR"
@@ -79,7 +86,7 @@ impl LiquidStakingToken {
         let stake_amount = NearToken::from_yoctonear(amount.0);
 
         self.sync_rewards_internal(Some(stake_amount));
-        self.stake_and_deposit(args, stake_amount, DepositToken::Wnear, false)
+        self.stake_and_deposit(sender_id, args, stake_amount, DepositToken::Wnear, false)
     }
 
     #[private]
@@ -102,6 +109,7 @@ impl LiquidStakingToken {
     #[private]
     pub fn on_stake_and_deposit(
         &mut self,
+        sender_id: AccountId,
         deposit_amount: NearToken,
         lst_tokens: NearToken,
         args: StakeMessage,
@@ -117,7 +125,7 @@ impl LiquidStakingToken {
                         .with_static_gas(min_gas)
                         .with_unused_gas_weight(1)
                         .ft_on_transfer(
-                            env::current_account_id(),
+                            sender_id,
                             lst_tokens.as_yoctonear().into(),
                             msg.to_string(),
                         )
@@ -201,6 +209,7 @@ impl LiquidStakingToken {
     // The method is called by the `ft_on_transfer` callback.
     pub(crate) fn handle_staking(
         &self,
+        sender_id: AccountId,
         deposit_amount: U128,
         args: StakeMessage,
     ) -> PromiseOrValue<U128> {
@@ -212,13 +221,14 @@ impl LiquidStakingToken {
             .then(
                 Self::ext(env::current_account_id())
                     .with_unused_gas_weight(1)
-                    .on_near_withdraw(deposit_amount, args),
+                    .on_near_withdraw(sender_id, deposit_amount, args),
             )
             .into()
     }
 
     pub(crate) fn stake_and_deposit(
         &self,
+        sender_id: AccountId,
         args: StakeMessage,
         deposit_amount: NearToken,
         deposit_token: DepositToken,
@@ -280,7 +290,7 @@ impl LiquidStakingToken {
             promise.then(
                 Self::ext(env::current_account_id())
                     .with_unused_gas_weight(1)
-                    .on_stake_and_deposit(deposit_amount, lst_tokens, args),
+                    .on_stake_and_deposit(sender_id, deposit_amount, lst_tokens, args),
             )
         }
     }

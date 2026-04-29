@@ -33,7 +33,7 @@ pub const TOTAL_SUPPLY: NearToken = NearToken::from_near(1_008_020_000);
 pub const INIT_LOCK: NearToken = NearToken::from_near(10_000);
 
 pub const BLOCKS_PER_EPOCH: u64 = 50;
-pub const INITIAL_BALANCE: NearToken = NearToken::from_near(1_000_000);
+pub const INIT_BALANCE: NearToken = NearToken::from_near(1_000_000);
 pub static LST_ARTIFACT: OnceCell<Vec<u8>> = OnceCell::const_new();
 pub static FT_RECEIVER_ARTIFACT: OnceCell<Vec<u8>> = OnceCell::const_new();
 pub static SIGNER: LazyLock<Arc<Signer>> = LazyLock::new(|| {
@@ -415,7 +415,7 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
         .initial_balance
         .map_or(TOTAL_SUPPLY, |init_balance| {
             TOTAL_SUPPLY
-                .saturating_sub(INITIAL_BALANCE)
+                .saturating_sub(INIT_BALANCE)
                 .saturating_add(init_balance)
         });
 
@@ -444,37 +444,37 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
         additional_accounts: vec![
             GenesisAccount {
                 account_id: "test.near".parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
                 account_id: ALICE.parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
                 account_id: BOB.parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
                 account_id: WNEAR.parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
                 account_id: INTENTS.parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
                 account_id: FT_RECEIVER.parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
                 account_id: NON_WNEAR.parse().unwrap(),
-                balance: INITIAL_BALANCE,
+                balance: INIT_BALANCE,
                 ..Default::default()
             },
             GenesisAccount {
@@ -483,7 +483,7 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
                 private_key: validator_private_key.to_string(),
                 balance: builder
                     .initial_balance
-                    .unwrap_or(INITIAL_BALANCE)
+                    .unwrap_or(INIT_BALANCE)
                     .saturating_sub(INIT_LOCK),
                 locked: INIT_LOCK,
             },

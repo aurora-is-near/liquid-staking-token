@@ -7,7 +7,7 @@ use crate::env::intents::{Intents, IntentsSigner};
 use crate::env::mt::MultiToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
-use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
+use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 #[tokio::test]
@@ -45,7 +45,7 @@ async fn test_withdraw_before_cooldown_fails() -> TestResult {
             .await?
             .total
             .saturating_add(NearToken::from_yoctonear(2)), // add_public_key + ft_transfer_call
-        INITIAL_BALANCE
+        INIT_BALANCE
     );
 
     Ok(())
@@ -116,7 +116,7 @@ async fn test_unstake_native_by_withdrawing_lst_from_intents() -> TestResult {
 
     assert_eq!(
         alice.near_balance().await?.total.saturating_add(ONE_YOCTO),
-        INITIAL_BALANCE
+        INIT_BALANCE
     );
 
     Ok(())
@@ -161,7 +161,7 @@ async fn test_unstake_native_by_sending_lst_back() -> TestResult {
             .await?
             .total
             .saturating_add(NearToken::from_yoctonear(2)), // add_public_key + ft_transfer_call
-        INITIAL_BALANCE
+        INIT_BALANCE
     );
 
     Ok(())
@@ -269,7 +269,7 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
             .await?
             .total
             .saturating_add(NearToken::from_yoctonear(3)), // add_public_key + ft_transfer_call + ft_transfer_call
-        INITIAL_BALANCE
+        INIT_BALANCE
     );
     let intents_balance = env
         .intents

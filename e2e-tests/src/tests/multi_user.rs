@@ -5,7 +5,7 @@ use testresult::TestResult;
 use crate::env::ft::FungibleToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
-use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
+use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, stake_message, unstake_message};
 
 /// Alice and Bob stake independently, unstake with different messages (different
@@ -78,14 +78,14 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
             .await?
             .total
             .saturating_add(NearToken::from_yoctonear(2)),
-        INITIAL_BALANCE
+        INIT_BALANCE
     );
     assert_eq!(
         bob.near_balance()
             .await?
             .total
             .saturating_add(NearToken::from_yoctonear(2)),
-        INITIAL_BALANCE
+        INIT_BALANCE
     );
 
     Ok(())
