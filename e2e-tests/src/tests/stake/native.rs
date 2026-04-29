@@ -766,8 +766,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
     let alice_balance_before = alice.near_balance().await?;
     let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
 
-    let r = env
-        .lst
+    env.lst
         .stake(
             alice,
             STAKE_AMOUNT,
@@ -779,7 +778,6 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
             ),
         )
         .await?;
-    dbg!(r);
 
     // `ft_on_transfer` panics on the contract, since the message isn't recognizable.
 
