@@ -62,9 +62,9 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | 37 | Unstake via intents execute → wNEAR without `storage_deposit` (not registered) | **[covered]** |
 | 38 | Partial unstake (send fewer tokens than owned) → remaining LST preserved | **[covered]** |
 | 39 | Two unstakes accumulated into same queue entry, then withdrawn | **[covered]** |
-| 40 | Unstake more than staked amount → fails | **[missing]** |
-| 41 | Unstake with invalid `UnstakeMessage` format → fails | **[missing]** |
-| 42 | Unstake 0 tokens → fails | **[missing]** |
+| 40 | Unstake more than staked amount → fails | **[covered]** |
+| 41 | Unstake with invalid `UnstakeMessage` format → fails | **[covered]** |
+| 42 | Unstake 0 tokens → fails | **[covered]** |
 
 ---
 
@@ -74,16 +74,16 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 |---|----------|--------|
 | 43 | Withdraw before cooldown passes → fails | **[covered]** |
 | 44 | Withdraw for a nonexistent queue entry → fails | **[covered]** |
-| 45 | Withdraw with modified `UnstakeMessage` (hash mismatch) → fails | **[missing]** |
+| 45 | Withdraw with modified `UnstakeMessage` (hash mismatch) → fails | **[covered]** |
 | 46 | Withdraw native NEAR after cooldown | **[covered]** |
 | 47 | Withdraw wNEAR after cooldown | **[covered]** |
 | 48 | Withdraw wNEAR via `ft_transfer_call` (with `msg`) | **[covered]** |
 | 49 | Withdraw wNEAR via `ft_transfer_call` with bad `msg` → partial refund → remaining stays in queue | **[covered]** |
 | 50 | Withdraw remaining queue entry after partial consume | **[covered]** |
 | 51 | Re-unstake with same `UnstakeMessage` after partial wNEAR refund → residual plus new unstake withdraws fully | **[covered]** |
-| 52 | Withdraw wNEAR with `storage_deposit` to unregistered account | **[missing]** |
-| 53 | Withdraw wNEAR with `storage_deposit` exceeding withdrawal amount → fails | **[missing]** |
-| 54 | Withdraw wNEAR to `receiver_id = current_account_id` with `storage_deposit` set → fails | **[missing]** |
+| 52 | Withdraw wNEAR with `storage_deposit` to unregistered account | **[covered]** |
+| 53 | Withdraw wNEAR with `storage_deposit` exceeding withdrawal amount → fails | **[covered]** |
+| 54 | Withdraw wNEAR to `receiver_id = current_account_id` with `storage_deposit` set → fails | **[covered]** |
 
 ---
 
@@ -144,10 +144,10 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 |------|---------|---------|-------|
 | Staking (native) | 16 | 0 | 16 |
 | Staking (wNEAR) | 11 | 0 | 11 |
-| Unstaking | 11 | 4 | 15 |
-| Withdrawal | 8 | 4 | 12 |
+| Unstaking | 14 | 1 | 15 |
+| Withdrawal | 12 | 0 | 12 |
 | Storage management | 0 | 7 | 7 |
 | NEP-141 operations | 0 | 6 | 6 |
 | Multi-user | 1 | 3 | 4 |
 | Access control | 0 | 6 | 6 |
-| **Total** | **47** | **30** | **77** |
+| **Total** | **54** | **23** | **77** |

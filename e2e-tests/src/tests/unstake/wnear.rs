@@ -1,5 +1,6 @@
 use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
+use near_api::types::transaction::result::TransactionResultError;
 use testresult::TestResult;
 
 use crate::env::ft::{FT_STORAGE_DEPOSIT, FungibleToken};
@@ -11,8 +12,35 @@ use crate::env::wnear::WNear;
 use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
+const STORAGE_DEPOSIT_EXCEEDS_WITHDRAWAL_ERROR: &str =
+    "Storage deposit exceeds the withdrawal amount";
+const SELF_WITHDRAW_STORAGE_DEPOSIT_ERROR: &str =
+    "There couldn't be a storage_deposit for the current account withdrawal";
+
 fn refund_once_message(refund_amount: NearToken) -> String {
     format!("refund_once:{}", refund_amount.as_yoctonear())
+}
+
+fn assert_transaction_failure_contains<T>(result: anyhow::Result<T>, expected: &str) {
+    let Err(error) = result else {
+        panic!("Expected transaction to fail");
+    };
+    let tx_error = error
+        .downcast_ref::<TransactionResultError>()
+        .expect("Expected transaction result error");
+
+    match tx_error {
+        TransactionResultError::Failure(failure) => {
+            let failure = failure.to_string();
+            assert!(
+                failure.contains(expected),
+                "Expected transaction failure to contain `{expected}`, got `{failure}`"
+            );
+        }
+        TransactionResultError::Pending(status) => {
+            panic!("Expected transaction failure: {status:?}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -376,6 +404,140 @@ async fn test_reunstake_with_same_wnear_message_after_partial_refund() -> TestRe
     assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
     assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_withdraw_wnear_with_storage_deposit_to_wnear_unregistered_receiver() -> TestResult {
+    let env = Env::builder().without_storage_deposit().build().await?;
+    let alice = env.alice();
+    let bob = env.bob();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT.saturating_add(FT_STORAGE_DEPOSIT),
+            stake_message(alice.id(), Some(FT_STORAGE_DEPOSIT), None::<&String>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(
+        bob.id(),
+        &WithdrawTokens::Wnear {
+            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            msg: None,
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &unstake_message).await?;
+
+    assert_eq!(
+        env.wnear.ft_balance_of(bob.id()).await?,
+        STAKE_AMOUNT.saturating_sub(FT_STORAGE_DEPOSIT)
+    );
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_withdraw_wnear_with_storage_deposit_exceeding_amount_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let tiny_unstake_amount = FT_STORAGE_DEPOSIT.saturating_div(2);
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    let unstake_message = unstake_message(
+        alice.id(),
+        &WithdrawTokens::Wnear {
+            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            msg: None,
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), tiny_unstake_amount, &unstake_message)
+        .await?;
+
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        tiny_unstake_amount
+    );
+
+    env.wait_unstake_cooldown().await?;
+
+    let result = env.lst.withdraw(alice, &unstake_message).await;
+    assert_transaction_failure_contains(result, STORAGE_DEPOSIT_EXCEEDS_WITHDRAWAL_ERROR);
+
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        tiny_unstake_amount
+    );
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_withdraw_wnear_to_current_account_with_storage_deposit_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    let unstake_message = unstake_message(
+        env.lst.id(),
+        &WithdrawTokens::Wnear {
+            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            msg: None,
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    env.wait_unstake_cooldown().await?;
+
+    let result = env.lst.withdraw(alice, &unstake_message).await;
+    assert_transaction_failure_contains(result, SELF_WITHDRAW_STORAGE_DEPOSIT_ERROR);
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+    assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
 
     Ok(())
 }
