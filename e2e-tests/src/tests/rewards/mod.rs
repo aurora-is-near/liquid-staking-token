@@ -11,7 +11,7 @@ use testresult::TestResult;
 use crate::env::ft::FungibleToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
-use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE, TOTAL_SUPPLY};
+use crate::env::{Env, INIT_BALANCE, INIT_LOCK, TOTAL_SUPPLY};
 use crate::tests::{STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 #[tokio::test]
@@ -130,7 +130,7 @@ async fn test_getting_rewards_for_two_epochs_with_fee() -> TestResult {
         env.lst
             .get_total_balance()
             .await?
-            .saturating_sub(INITIAL_BALANCE),
+            .saturating_sub(INIT_BALANCE),
         env.lst
             .get_total_staked_balance()
             .await?

@@ -8,7 +8,7 @@ use crate::env::mt::MultiToken;
 use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::wnear::WNear;
-use crate::env::{Env, INIT_LOCK, INITIAL_BALANCE};
+use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 fn refund_once_message(refund_amount: NearToken) -> String {
@@ -77,7 +77,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
     assert_eq!(intents_balance, STAKE_AMOUNT);
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
-        INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
+        INIT_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
     );
 
     Ok(())
@@ -204,7 +204,7 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
 
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
-        INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
+        INIT_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
     );
     let intents_balance = env
         .intents
@@ -257,7 +257,7 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(
         env.lst.get_total_balance().await?,
-        INITIAL_BALANCE
+        INIT_BALANCE
             .saturating_add(STAKE_AMOUNT)
             .saturating_add(ONE_YOCTO)
     );
@@ -276,12 +276,12 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     );
     assert_eq!(
         env.lst.get_total_balance().await?,
-        INITIAL_BALANCE.saturating_add(ONE_YOCTO)
+        INIT_BALANCE.saturating_add(ONE_YOCTO)
     );
 
     assert_eq!(
         alice.near_balance().await?.total.as_millinear() + 1,
-        INITIAL_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
+        INIT_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
     );
     let intents_balance = env
         .intents
