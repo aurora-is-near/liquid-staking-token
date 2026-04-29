@@ -15,14 +15,13 @@ impl FungibleTokenReceiver for LiquidStakingToken {
         amount: U128,
         msg: String,
     ) -> PromiseOrValue<U128> {
-        let _ = sender_id;
         let token_id = env::predecessor_account_id();
 
         if token_id == self.wnear_id {
             let stake_message = serde_json::from_str(&msg)
                 .unwrap_or_else(|_| env::panic_str("Invalid format of the StakeMessage"));
 
-            self.handle_staking(amount, stake_message)
+            self.handle_staking(sender_id, amount, stake_message)
         } else if token_id == env::current_account_id() {
             let unstake_message = serde_json::from_str(&msg)
                 .unwrap_or_else(|_| env::panic_str("Invalid format of the UnstakeMessage"));
