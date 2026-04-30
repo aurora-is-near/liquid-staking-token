@@ -381,7 +381,7 @@ async fn test_unstake_more_than_staked_amount_fails() -> TestResult {
 }
 
 #[tokio::test]
-async fn test_unstake_with_invalid_message_format_fails() -> TestResult {
+async fn test_unstake_with_invalid_message_format_refunds_and_skips_queue() -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
 
