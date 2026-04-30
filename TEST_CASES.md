@@ -91,13 +91,13 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 
 | # | Scenario | Status |
 |---|----------|--------|
-| 55 | `storage_deposit` to register a new account | **[missing]** |
-| 56 | `storage_deposit` with `registration_only = true` | **[missing]** |
-| 57 | `storage_unregister` with zero balance → succeeds | **[missing]** |
-| 58 | `storage_unregister` with non-zero balance, no force → fails | **[missing]** |
-| 59 | `storage_unregister` with non-zero balance, `force = true` → burns balance | **[missing]** |
-| 60 | `storage_withdraw` → recover excess deposit | **[missing]** |
-| 61 | `storage_balance_of` for registered / unregistered accounts | **[missing]** |
+| 55 | `storage_deposit` to register a new account | **[covered]** |
+| 56 | `storage_deposit` with `registration_only = true` | **[covered]** |
+| 57 | `storage_unregister` with zero balance → succeeds | **[covered]** |
+| 58 | `storage_unregister` with non-zero balance, no force → fails | **[covered]** |
+| 59 | `storage_unregister` with non-zero balance, `force = true` → burns balance | **[covered]** |
+| 60 | `storage_withdraw` with no available excess → keeps storage deposit unchanged | **[covered]** |
+| 61 | `storage_balance_of` for registered / unregistered accounts | **[covered]** |
 
 ---
 
@@ -146,7 +146,7 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | Staking (wNEAR) | 11 | 0 | 11 |
 | Unstaking | 14 | 1 | 15 |
 | Withdrawal | 12 | 0 | 12 |
-| Storage management | 0 | 7 | 7 |
+| Storage management | 7 | 0 | 7 |
 | NEP-141 operations | 0 | 6 | 6 |
 | Multi-user | 3 | 1 | 4 |
 | Access control | 0 | 6 | 6 |
