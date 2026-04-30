@@ -184,19 +184,10 @@ impl FungibleToken for Contract {
         amount: NearToken,
         registration_only: Option<bool>,
     ) -> anyhow::Result<ExecutionSuccess> {
-        let args = registration_only.map_or_else(
-            || {
-                json!({
-                    "account_id": account_id,
-                })
-            },
-            |registration_only| {
-                json!({
-                    "account_id": account_id,
-                    "registration_only": registration_only,
-                })
-            },
-        );
+        let args = json!({
+            "account_id": account_id,
+            "registration_only": registration_only,
+        });
 
         self.inner
             .call_function("storage_deposit", args)

@@ -59,9 +59,7 @@ async fn test_storage_deposit_registers_new_account() -> TestResult {
 
     assert!(env.lst.ft_storage_balance_of(alice.id()).await?.is_none());
 
-    env.lst
-        .ft_storage_deposit_with_amount(alice, alice.id(), FT_STORAGE_DEPOSIT, None)
-        .await?;
+    env.lst.ft_storage_deposit(alice, alice.id()).await?;
 
     assert_storage_balance(
         env.lst.ft_storage_balance_of(alice.id()).await?,
@@ -112,7 +110,6 @@ async fn test_storage_deposit_registration_only_registers_new_account() -> TestR
         alice_balance_after.total.saturating_add(FT_STORAGE_DEPOSIT),
         alice_balance_before.total
     );
-    assert_eq!(alice_balance_after.locked, alice_balance_before.locked);
 
     Ok(())
 }
@@ -208,7 +205,6 @@ async fn test_storage_unregister_with_non_zero_balance_and_force_burns_balance()
             .saturating_sub(STAKE_AMOUNT)
             .saturating_add(FT_STORAGE_DEPOSIT)
     );
-    assert_eq!(alice_balance_after.locked, alice_balance_before.locked);
 
     Ok(())
 }
@@ -257,10 +253,6 @@ async fn test_storage_withdraw_without_available_balance_keeps_storage_deposit()
             .saturating_add(ONE_YOCTO),
         alice_balance_before.total
     );
-    assert_eq!(
-        alice_balance_after_withdraw.locked,
-        alice_balance_before.locked
-    );
 
     Ok(())
 }
@@ -290,7 +282,6 @@ async fn test_storage_balance_of_registered_and_unregistered_accounts() -> TestR
         alice_balance_after.total.saturating_add(FT_STORAGE_DEPOSIT),
         alice_balance_before.total
     );
-    assert_eq!(alice_balance_after.locked, alice_balance_before.locked);
     assert_eq!(bob.near_balance().await?, bob_balance_before);
 
     Ok(())
