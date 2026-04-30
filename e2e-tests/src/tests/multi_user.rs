@@ -227,10 +227,7 @@ async fn test_concurrent_stakes_then_same_block_unstake_and_stake() -> TestResul
 
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
     let actual_bob_balance = env.lst.ft_balance_of(bob.id()).await?;
-    assert!(
-        actual_bob_balance == expected_bob_balance_without_reward
-            || actual_bob_balance == expected_bob_balance_without_reward.saturating_sub(ONE_YOCTO)
-    );
+    assert_eq!(actual_bob_balance, expected_bob_balance_without_reward);
     assert_eq!(
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(actual_bob_balance)
@@ -245,6 +242,17 @@ async fn test_concurrent_stakes_then_same_block_unstake_and_stake() -> TestResul
     env.lst.withdraw(alice, &alice_unstake_message).await?;
 
     assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INIT_BALANCE.saturating_sub(NearToken::from_yoctonear(2))
+    );
+    assert_eq!(
+        bob.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(bob_initial_stake)
+            .saturating_sub(bob_second_stake)
+            .saturating_sub(ONE_YOCTO)
+    );
 
     Ok(())
 }
