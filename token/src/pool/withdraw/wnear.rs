@@ -51,7 +51,11 @@ impl LiquidStakingToken {
             let entry = self
                 .unstake_queue
                 .get_mut(&msg_hash)
-                .unwrap_or_else(|| env::panic_str("No withdrawal in unstake queue"));
+                .unwrap_or_else(|| env::panic_str("No distribution for the given hash"))
+                .as_locked_mut()
+                .unwrap_or_else(|| {
+                    env::panic_str("The user distribution should be locked at this point")
+                });
 
             // Decrement the queued claim by what this attempt actually
             // delivered (consumed wNEAR + paid storage). This survives any
@@ -119,11 +123,6 @@ impl LiquidStakingToken {
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
-        require!(
-            self.withdrawal_locks.insert(msg_hash),
-            "The withdrawal for this hash is already in progress"
-        );
-
         // Read the per-entry state set by prior attempts:
         //   - wnear_residual: how much of `amount` is already wNEAR at this
         //     contract (refunded back from a prior partial ft_transfer).
@@ -131,10 +130,13 @@ impl LiquidStakingToken {
         //     `args.receiver_id` on the wNEAR contract.
         let (wnear_residual, storage_was_paid) = self
             .unstake_queue
-            .get(&msg_hash)
-            .map_or((NearToken::ZERO, false), |entry| {
-                (entry.wnear_residual, entry.storage_was_paid)
-            });
+            .get_mut(&msg_hash)
+            .unwrap_or_else(|| env::panic_str("No distribution for the given hash"))
+            .as_locked()
+            .map_or_else(
+                || env::panic_str("The user distribution should be locked at this point"),
+                |entry| (entry.wnear_residual, entry.storage_was_paid),
+            );
 
         // Storage_deposit is paid at most once per queue entry — only when
         // the user requested one and a prior attempt didn't already pay it.
