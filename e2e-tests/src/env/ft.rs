@@ -1,5 +1,6 @@
 use liquid_staking_token::ONE_YOCTO;
 use near_api::types::json::U128;
+use near_api::types::storage::StorageBalance;
 use near_api::types::transaction::result::ExecutionSuccess;
 use near_api::{AccountId, Data, NearToken, Tokens};
 use near_sdk::serde_json::json;
@@ -11,6 +12,10 @@ pub const FT_STORAGE_DEPOSIT: NearToken = NearToken::from_micronear(1250);
 pub trait FungibleToken {
     async fn ft_balance_of(&self, account_id: &AccountId) -> anyhow::Result<NearToken>;
     async fn ft_total_supply(&self) -> anyhow::Result<NearToken>;
+    async fn ft_storage_balance_of(
+        &self,
+        account_id: &AccountId,
+    ) -> anyhow::Result<Option<StorageBalance>>;
     async fn ft_transfer(
         &self,
         sender: &Account,
@@ -35,6 +40,13 @@ pub trait FungibleToken {
         &self,
         signer: &Account,
         account_id: &AccountId,
+    ) -> anyhow::Result<ExecutionSuccess>;
+    async fn ft_storage_deposit_with_amount(
+        &self,
+        signer: &Account,
+        account_id: &AccountId,
+        amount: NearToken,
+        registration_only: Option<bool>,
     ) -> anyhow::Result<ExecutionSuccess>;
     async fn ft_storage_withdraw(
         &self,
@@ -65,6 +77,19 @@ impl FungibleToken for Contract {
             .fetch_from(self.config())
             .await
             .map(|supply: Data<U128>| NearToken::from_yoctonear(supply.data.0))
+            .map_err(Into::into)
+    }
+
+    async fn ft_storage_balance_of(
+        &self,
+        account_id: &AccountId,
+    ) -> anyhow::Result<Option<StorageBalance>> {
+        self.inner
+            .storage_deposit()
+            .view_account_storage(account_id.clone())
+            .fetch_from(self.config())
+            .await
+            .map(|storage: Data<Option<StorageBalance>>| storage.data)
             .map_err(Into::into)
     }
 
@@ -148,10 +173,27 @@ impl FungibleToken for Contract {
         signer: &Account,
         account_id: &AccountId,
     ) -> anyhow::Result<ExecutionSuccess> {
+        self.ft_storage_deposit_with_amount(signer, account_id, FT_STORAGE_DEPOSIT, Some(true))
+            .await
+    }
+
+    async fn ft_storage_deposit_with_amount(
+        &self,
+        signer: &Account,
+        account_id: &AccountId,
+        amount: NearToken,
+        registration_only: Option<bool>,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        let args = json!({
+            "account_id": account_id,
+            "registration_only": registration_only,
+        });
+
         self.inner
-            .storage_deposit()
-            .deposit(account_id.clone(), FT_STORAGE_DEPOSIT)
-            .registration_only()
+            .call_function("storage_deposit", args)
+            .transaction()
+            .deposit(amount)
+            .max_gas()
             .with_signer(signer.id().clone(), signer.signer())
             .send_to(signer.config())
             .await?

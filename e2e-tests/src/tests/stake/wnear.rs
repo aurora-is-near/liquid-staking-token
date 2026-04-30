@@ -1,6 +1,5 @@
 use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
-use near_api::types::transaction::result::TransactionResultError;
 use near_sdk::AccountId;
 use testresult::TestResult;
 
@@ -10,6 +9,7 @@ use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::wnear::WNear;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
+use crate::tests::assertions::assert_transaction_failure_contains;
 use crate::tests::stake::HALF_OF_STAKE;
 use crate::tests::{
     ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
@@ -20,28 +20,6 @@ const INVALID_TOKEN_ACCOUNT_ERROR: &str = "Invalid token account ID";
 
 fn partial_refund_message(refund_amount: NearToken) -> String {
     refund_amount.as_yoctonear().to_string()
-}
-
-fn assert_invalid_token_account_error<T>(result: anyhow::Result<T>) {
-    let Err(error) = result else {
-        panic!("Expected ft_on_transfer to fail");
-    };
-    let tx_error = error
-        .downcast_ref::<TransactionResultError>()
-        .expect("Expected transaction result error");
-
-    match tx_error {
-        TransactionResultError::Failure(failure) => {
-            let failure = failure.to_string();
-            assert!(
-                failure.contains(INVALID_TOKEN_ACCOUNT_ERROR),
-                "Expected transaction failure to contain `{INVALID_TOKEN_ACCOUNT_ERROR}`, got `{failure}`"
-            );
-        }
-        TransactionResultError::Pending(status) => {
-            panic!("Expected transaction failure: {status:?}");
-        }
-    }
 }
 
 #[tokio::test]
@@ -559,7 +537,7 @@ async fn test_stake_with_non_wnear_non_lst_token_fails() -> TestResult {
         )
         .await;
 
-    assert_invalid_token_account_error(result);
+    assert_transaction_failure_contains(result, INVALID_TOKEN_ACCOUNT_ERROR);
 
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);

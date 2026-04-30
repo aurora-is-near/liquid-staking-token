@@ -1,5 +1,4 @@
 use liquid_staking_token::pool::WithdrawTokens;
-use near_api::types::transaction::result::TransactionResultError;
 use near_api::{NearToken, PublicKey};
 use std::str::FromStr;
 use testresult::TestResult;
@@ -7,6 +6,7 @@ use testresult::TestResult;
 use crate::env::ft::FT_STORAGE_DEPOSIT;
 use crate::env::pool::StakingPool;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK, ft::FungibleToken, mt::MultiToken, native::Native};
+use crate::tests::assertions::assert_transaction_failure_contains;
 use crate::tests::stake::HALF_OF_STAKE;
 use crate::tests::{
     ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, stake_message_with_refund, unstake_message,
@@ -14,28 +14,6 @@ use crate::tests::{
 
 const STAKE_AMOUNT_ERROR: &str = "The amount of NEAR tokens for staking must be more than 0";
 const PARTIAL_REFUND_AMOUNT: NearToken = NearToken::from_near(250);
-
-fn assert_stake_amount_error<T>(result: anyhow::Result<T>) {
-    let Err(error) = result else {
-        panic!("Expected stake to fail");
-    };
-    let tx_error = error
-        .downcast_ref::<TransactionResultError>()
-        .expect("Expected transaction result error");
-
-    match tx_error {
-        TransactionResultError::Failure(failure) => {
-            let failure = failure.to_string();
-            assert!(
-                failure.contains(STAKE_AMOUNT_ERROR),
-                "Expected transaction failure to contain `{STAKE_AMOUNT_ERROR}`, got `{failure}`"
-            );
-        }
-        TransactionResultError::Pending(status) => {
-            panic!("Expected transaction failure: {status:?}");
-        }
-    }
-}
 
 fn partial_refund_message(refund_amount: NearToken) -> String {
     refund_amount.as_yoctonear().to_string()
@@ -467,7 +445,7 @@ async fn test_stake_with_zero_native_near_fails() -> TestResult {
         )
         .await;
 
-    assert_stake_amount_error(result);
+    assert_transaction_failure_contains(result, STAKE_AMOUNT_ERROR);
 
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
@@ -492,7 +470,7 @@ async fn test_stake_with_only_storage_deposit_fails() -> TestResult {
         )
         .await;
 
-    assert_stake_amount_error(result);
+    assert_transaction_failure_contains(result, STAKE_AMOUNT_ERROR);
 
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
