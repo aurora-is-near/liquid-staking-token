@@ -1,9 +1,10 @@
+use defuse_near_utils::Lock;
 use near_contract_standards::fungible_token::FungibleToken;
 use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_plugins::{AccessControlRole, AccessControllable, Pausable, Upgradable, access_control};
 use near_sdk::borsh::BorshDeserialize;
 use near_sdk::borsh::BorshSerialize;
-use near_sdk::store::{LookupMap, LookupSet};
+use near_sdk::store::IterableMap;
 use near_sdk::{
     AccountId, BorshStorageKey, CryptoHash, NearToken, PanicOnDefault, PublicKey, env, near,
     require,
@@ -27,7 +28,6 @@ pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 enum StorageKey {
     FungibleToken,
     UnstakeQueue,
-    WithdrawalLocks,
 }
 
 #[derive(AccessControlRole, Clone, Copy)]
@@ -58,9 +58,7 @@ pub struct LiquidStakingToken {
     /// The metadata of the LST token.
     metadata: FungibleTokenMetadata,
     /// The queue for unstake requests.
-    unstake_queue: LookupMap<CryptoHash, UserDistribution>,
-    /// Withdrawal locks.
-    withdrawal_locks: LookupSet<CryptoHash>,
+    unstake_queue: IterableMap<CryptoHash, Lock<UserDistribution>>,
     /// The ID of the account that owns the contract.
     owner_id: AccountId,
     /// The ID of the account that holds wNEAR.
@@ -104,8 +102,7 @@ impl LiquidStakingToken {
         let mut contract = Self {
             token,
             metadata,
-            unstake_queue: LookupMap::new(StorageKey::UnstakeQueue),
-            withdrawal_locks: LookupSet::new(StorageKey::WithdrawalLocks),
+            unstake_queue: IterableMap::new(StorageKey::UnstakeQueue),
             owner_id: owner_id.clone(),
             wnear_id,
             treasury_id,

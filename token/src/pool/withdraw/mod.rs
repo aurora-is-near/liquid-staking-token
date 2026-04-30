@@ -42,24 +42,32 @@ impl LiquidStakingToken {
         let msg_hash = args
             .hash()
             .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
-        let (amount, epoch) = self.unstake_queue.get(&msg_hash).map_or_else(
-            || env::panic_str("Account is not found in the unstake queue"),
-            |entry| (&entry.withdrawal_amount, &entry.unstake_epoch),
-        );
+
+        let (amount, epoch) = self
+            .unstake_queue
+            .get_mut(&msg_hash)
+            .unwrap_or_else(|| env::panic_str("No distribution for the given hash"))
+            .lock()
+            .map_or_else(
+                || env::panic_str("Unstake request is already in progress"),
+                |entry| (entry.withdrawal_amount, entry.unstake_epoch),
+            );
 
         require!(
-            *epoch + UNSTAKE_COOLDOWN_PERIOD <= env::epoch_height(),
+            epoch + UNSTAKE_COOLDOWN_PERIOD <= env::epoch_height(),
             "The cooldown hasn't passed yet"
         );
 
         match args.withdraw_tokens {
-            WithdrawTokens::Native => self.withdraw_native(args.receiver_id, *amount, msg_hash),
-            WithdrawTokens::Wnear { .. } => self.withdraw_wnear(*amount, args, msg_hash),
+            WithdrawTokens::Native => Self::withdraw_native(args.receiver_id, amount, msg_hash),
+            WithdrawTokens::Wnear { .. } => self.withdraw_wnear(amount, args, msg_hash),
         }
     }
 
     #[private]
     pub fn remove_lock(&mut self, msg_hash: CryptoHash) {
-        self.withdrawal_locks.remove(&msg_hash);
+        self.unstake_queue
+            .get_mut(&msg_hash)
+            .map(defuse_near_utils::Lock::force_unlock);
     }
 }

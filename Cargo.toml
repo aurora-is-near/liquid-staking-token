@@ -16,6 +16,7 @@ members = [
 anyhow = "1"
 cargo-near-build = "0.11"
 defuse = { git = "https://github.com/near/intents", tag = "defuse/v0.4.2" }
+defuse-near-utils = { git = "https://github.com/near/intents", tag = "defuse/v0.4.2" }
 near-api = "0.8"
 near-contract-standards = "5"
 near-plugins = "0.5"
