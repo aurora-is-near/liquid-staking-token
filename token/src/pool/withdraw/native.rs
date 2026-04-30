@@ -1,6 +1,6 @@
 use near_sdk::{AccountId, CryptoHash, NearToken, Promise, env, near};
 
-use crate::pool::withdraw::ON_WITHDRAW_NATIVE_GAS;
+use crate::pool::withdraw::{ON_WITHDRAW_NATIVE_GAS, REMOVE_LOCK_GAS};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 #[near]
@@ -14,7 +14,6 @@ impl LiquidStakingToken {
             self.statistics.decrease_pending_withdrawals(amount);
         } else {
             near_sdk::log!("Error while withdrawing Native NEAR");
-            self.remove_lock(msg_hash);
         }
     }
 }
@@ -30,11 +29,17 @@ impl LiquidStakingToken {
             amount.as_yoctonear(),
         );
 
-        Promise::new(receiver_id).transfer(amount).then(
-            Self::ext(env::current_account_id())
-                .with_unused_gas_weight(1)
-                .with_static_gas(ON_WITHDRAW_NATIVE_GAS)
-                .on_withdraw_native(msg_hash, amount),
-        )
+        Promise::new(receiver_id)
+            .transfer(amount)
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(ON_WITHDRAW_NATIVE_GAS)
+                    .on_withdraw_native(msg_hash, amount),
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(REMOVE_LOCK_GAS)
+                    .remove_lock(msg_hash),
+            )
     }
 }
