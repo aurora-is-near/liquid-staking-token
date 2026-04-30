@@ -1,6 +1,6 @@
 use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
-use near_sdk::serde_json::{Value, json};
+use near_sdk::serde_json::Value;
 use testresult::TestResult;
 
 use crate::env::ft::FungibleToken;
@@ -8,7 +8,6 @@ use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::types::Account;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
-use crate::tests::asserts::assert_same_block_success;
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 async fn stake_in_same_block(
@@ -17,44 +16,25 @@ async fn stake_in_same_block(
     bob: &Account,
     bob_initial_stake: NearToken,
 ) -> TestResult {
-    let alice_stake_tx = env
-        .lst
-        .inner
-        .call_function(
-            "stake",
-            json!({
-                "args": stake_message(alice.id(), None, None::<&str>),
-            }),
-        )
-        .transaction()
-        .deposit(STAKE_AMOUNT)
-        .max_gas()
-        .with_signer(alice.id().clone(), alice.signer());
-    let bob_stake_tx = env
-        .lst
-        .inner
-        .call_function(
-            "stake",
-            json!({
-                "args": stake_message(bob.id(), None, None::<&str>),
-            }),
-        )
-        .transaction()
-        .deposit(bob_initial_stake)
-        .max_gas()
-        .with_signer(bob.id().clone(), bob.signer());
+    let alice_stake_tx = env.lst.stake(
+        alice,
+        STAKE_AMOUNT,
+        stake_message(alice.id(), None, None::<&str>),
+    );
+    let bob_stake_tx = env.lst.stake(
+        bob,
+        bob_initial_stake,
+        stake_message(bob.id(), None, None::<&str>),
+    );
 
-    let (alice_stake_result, bob_stake_result) = tokio::try_join!(
-        alice_stake_tx.send_to(env.lst.config()),
-        bob_stake_tx.send_to(env.lst.config()),
-    )?;
+    let (alice_stake_result, bob_stake_result) = tokio::try_join!(alice_stake_tx, bob_stake_tx,)?;
 
-    assert_same_block_success(
-        alice_stake_result,
-        bob_stake_result,
-        "Alice stake transaction is pending",
-        "Bob stake transaction is pending",
-    )
+    assert_eq!(
+        &alice_stake_result.outcome().block_hash,
+        &bob_stake_result.outcome().block_hash
+    );
+
+    Ok(())
 }
 
 async fn unstake_and_stake_in_same_block(
@@ -64,46 +44,23 @@ async fn unstake_and_stake_in_same_block(
     alice_unstake_message: &Value,
     bob_second_stake: NearToken,
 ) -> TestResult {
-    let alice_unstake_tx = env
-        .lst
-        .inner
-        .call_function(
-            "ft_transfer_call",
-            json!({
-                "receiver_id": env.lst.id(),
-                "amount": STAKE_AMOUNT,
-                "msg": alice_unstake_message.to_string(),
-            }),
-        )
-        .transaction()
-        .deposit(ONE_YOCTO)
-        .max_gas()
-        .with_signer(alice.id().clone(), alice.signer());
-    let bob_stake_tx = env
-        .lst
-        .inner
-        .call_function(
-            "stake",
-            json!({
-                "args": stake_message(bob.id(), None, None::<&str>),
-            }),
-        )
-        .transaction()
-        .deposit(bob_second_stake)
-        .max_gas()
-        .with_signer(bob.id().clone(), bob.signer());
+    let alice_unstake_tx =
+        env.lst
+            .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, alice_unstake_message);
+    let bob_stake_tx = env.lst.stake(
+        bob,
+        bob_second_stake,
+        stake_message(bob.id(), None, None::<&str>),
+    );
+    let (alice_unstake_result, bob_stake_result) =
+        tokio::try_join!(alice_unstake_tx, bob_stake_tx)?;
 
-    let (alice_unstake_result, bob_stake_result) = tokio::try_join!(
-        alice_unstake_tx.send_to(env.lst.config()),
-        bob_stake_tx.send_to(env.lst.config()),
-    )?;
+    assert_eq!(
+        alice_unstake_result.outcome().block_hash,
+        bob_stake_result.outcome().block_hash
+    );
 
-    assert_same_block_success(
-        alice_unstake_result,
-        bob_stake_result,
-        "Alice unstake transaction is pending",
-        "Bob second stake transaction is pending",
-    )
+    Ok(())
 }
 
 /// Alice and Bob stake independently, unstake with different messages (different
@@ -197,14 +154,14 @@ async fn test_concurrent_stakes_then_same_block_unstake_and_stake() -> TestResul
     let alice = env.alice();
     let bob = env.bob();
 
-    let bob_initial_stake = STAKE_AMOUNT.saturating_div(2);
+    let bob_first_stake = STAKE_AMOUNT.saturating_div(2);
     let bob_second_stake = STAKE_AMOUNT.saturating_div(4);
-    let expected_initial_stake = STAKE_AMOUNT.saturating_add(bob_initial_stake);
+    let expected_initial_stake = STAKE_AMOUNT.saturating_add(bob_first_stake);
 
-    stake_in_same_block(&env, alice, bob, bob_initial_stake).await?;
+    stake_in_same_block(&env, alice, bob, bob_first_stake).await?;
 
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
-    assert_eq!(env.lst.ft_balance_of(bob.id()).await?, bob_initial_stake);
+    assert_eq!(env.lst.ft_balance_of(bob.id()).await?, bob_first_stake);
     assert_eq!(
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(expected_initial_stake)
@@ -214,30 +171,38 @@ async fn test_concurrent_stakes_then_same_block_unstake_and_stake() -> TestResul
         INIT_LOCK.saturating_add(expected_initial_stake)
     );
 
+    env.wait_for_epochs(1).await?;
+
     let alice_unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
     unstake_and_stake_in_same_block(&env, alice, bob, &alice_unstake_message, bob_second_stake)
         .await?;
 
-    let expected_bob_balance_without_reward = bob_initial_stake.saturating_add(bob_second_stake);
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+
+    let expected_bob_balance_after_second_stake = bob_first_stake.saturating_add(bob_second_stake);
     // `ft_transfer_call` attaches 1 yoctoNEAR to the contract; the concurrent
     // stake observes it during reward sync before restaking the corrected total.
-    let expected_total_staked_after_same_block = INIT_LOCK
-        .saturating_add(expected_bob_balance_without_reward)
-        .saturating_add(ONE_YOCTO);
+    let expected_total_staked_after_same_block =
+        INIT_LOCK.saturating_add(expected_bob_balance_after_second_stake);
 
-    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
     let actual_bob_balance = env.lst.ft_balance_of(bob.id()).await?;
-    assert_eq!(
-        actual_bob_balance,
-        expected_bob_balance_without_reward.saturating_sub(ONE_YOCTO)
+    // The result depends on the order of the receipts in the block. If Alice's receipt is first,
+    // Bob's receipt will see a reward of ONE_YOCTO from Alice's `ft_transfer_call`, meaning the
+    // actual balance in LST will be reduced by ONE_YOCTO because the total staked balance will
+    // be more than the total supply by ONE_YOCTO.
+    assert!(
+        (actual_bob_balance == expected_bob_balance_after_second_stake)
+            || (actual_bob_balance.saturating_add(ONE_YOCTO)
+                == expected_bob_balance_after_second_stake)
     );
+
     assert_eq!(
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(actual_bob_balance)
     );
     assert_eq!(
         env.lst.get_total_staked_balance().await?,
-        expected_total_staked_after_same_block
+        expected_total_staked_after_same_block.saturating_add(ONE_YOCTO)
     );
     assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
 
@@ -252,7 +217,7 @@ async fn test_concurrent_stakes_then_same_block_unstake_and_stake() -> TestResul
     assert_eq!(
         bob.near_balance().await?.total,
         INIT_BALANCE
-            .saturating_sub(bob_initial_stake)
+            .saturating_sub(bob_first_stake)
             .saturating_sub(bob_second_stake)
             .saturating_sub(ONE_YOCTO)
     );
