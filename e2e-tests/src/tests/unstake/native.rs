@@ -1,5 +1,6 @@
 use liquid_staking_token::pool::WithdrawTokens;
 use near_api::NearToken;
+use near_api::types::transaction::result::TransactionResultError;
 use testresult::TestResult;
 
 use crate::env::ft::FungibleToken;
@@ -9,6 +10,32 @@ use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
+
+const DISTRIBUTION_NOT_FOUND_ERROR: &str = "No distribution for the given hash";
+const INSUFFICIENT_BALANCE_ERROR: &str = "The account doesn't have enough balance";
+const ZERO_AMOUNT_ERROR: &str = "The amount should be a positive number";
+
+fn assert_transaction_failure_contains<T>(result: anyhow::Result<T>, expected: &str) {
+    let Err(error) = result else {
+        panic!("Expected transaction to fail");
+    };
+    let tx_error = error
+        .downcast_ref::<TransactionResultError>()
+        .expect("Expected transaction result error");
+
+    match tx_error {
+        TransactionResultError::Failure(failure) => {
+            let failure = failure.to_string();
+            assert!(
+                failure.contains(expected),
+                "Expected transaction failure to contain `{expected}`, got `{failure}`"
+            );
+        }
+        TransactionResultError::Pending(status) => {
+            panic!("Expected transaction failure: {status:?}");
+        }
+    }
+}
 
 #[tokio::test]
 async fn test_withdraw_before_cooldown_fails() -> TestResult {
@@ -67,6 +94,42 @@ async fn test_withdraw_nonexistent_stake_fails() -> TestResult {
     // State unchanged.
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_withdraw_with_modified_unstake_message_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let bob = env.bob();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    let original_unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &original_unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    env.wait_unstake_cooldown().await?;
+
+    let modified_unstake_message = unstake_message(bob.id(), &WithdrawTokens::Native);
+    let result = env.lst.withdraw(alice, &modified_unstake_message).await;
+    assert_transaction_failure_contains(result, DISTRIBUTION_NOT_FOUND_ERROR);
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    env.lst.withdraw(alice, &original_unstake_message).await?;
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
 
     Ok(())
 }
@@ -276,6 +339,106 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
         .mt_balance_of(alice.id(), env.wnear.id())
         .await?;
     assert_eq!(intents_balance, ZERO_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_unstake_more_than_staked_amount_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+    let result = env
+        .lst
+        .ft_transfer_call(
+            alice,
+            env.lst.id(),
+            STAKE_AMOUNT.saturating_add(ONE_YOCTO),
+            &unstake_message,
+        )
+        .await;
+    assert_transaction_failure_contains(result, INSUFFICIENT_BALANCE_ERROR);
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_unstake_with_invalid_message_format_refunds_and_skips_queue() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    // The receiver panic is resolved by NEP-141 refund, so the transfer call succeeds
+    // while the unstake itself leaves no queue entry behind.
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, "invalid message")
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_unstake_zero_tokens_fails() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&String>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+    let result = env
+        .lst
+        .ft_transfer_call(alice, env.lst.id(), ZERO_AMOUNT, &unstake_message)
+        .await;
+    assert_transaction_failure_contains(result, ZERO_AMOUNT_ERROR);
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
 
     Ok(())
 }

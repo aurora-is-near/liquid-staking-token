@@ -471,6 +471,7 @@ async fn test_stake_with_wnear_and_partial_nep141_refund_with_refund_message() -
         env.lst.get_total_balance().await?,
         INIT_BALANCE.saturating_add(STAKE_AMOUNT)
     );
+
     assert_eq!(
         env.lst.ft_balance_of(ft_receiver.id()).await?,
         consumed_amount
