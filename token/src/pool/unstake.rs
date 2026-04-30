@@ -149,7 +149,11 @@ impl LiquidStakingToken {
         if env::promise_result_checked(0, 0).is_ok() {
             near_sdk::log!("Unstake successful");
             let epoch_id = env::epoch_height();
-            let user_distribution = self.unstake_queue.entry(msg_hash).or_default();
+            let user_distribution = self
+                .unstake_queue
+                .entry(msg_hash)
+                .or_default()
+                .as_inner_unchecked_mut();
 
             user_distribution.withdrawal_amount = user_distribution
                 .withdrawal_amount
@@ -181,12 +185,8 @@ impl LiquidStakingToken {
     }
 
     #[private]
-    pub fn modify_state_after_unstake(
-        &mut self,
-        total_staked_tokens: NearToken,
-        lst_tokens: NearToken,
-    ) {
-        self.statistics.total_staked_amount = total_staked_tokens;
+    pub fn modify_state_after_unstake(&mut self, unstake_amount: NearToken, lst_tokens: NearToken) {
+        self.statistics.decrease_stake_amount(unstake_amount);
         self.internal_withdraw(&env::current_account_id(), lst_tokens);
     }
 }
@@ -235,7 +235,7 @@ impl LiquidStakingToken {
         )
         .with_unused_gas_weight(0)
         .with_static_gas(MODIFY_STATE_AFTER_STAKE_GAS)
-        .modify_state_after_unstake(new_total_staked_amount, lst_amount)
+        .modify_state_after_unstake(unstake_amount, lst_amount)
         .then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
