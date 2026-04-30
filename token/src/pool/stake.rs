@@ -93,7 +93,7 @@ impl LiquidStakingToken {
     pub fn modify_state_after_stake(
         &mut self,
         account_id: &AccountId,
-        total_staked_tokens: NearToken,
+        stake_amount: NearToken,
         deposit_amount: NearToken,
         lst_tokens: NearToken,
         is_contract_staking: bool,
@@ -102,7 +102,7 @@ impl LiquidStakingToken {
             self.statistics.increase_total_balance(deposit_amount);
         }
 
-        self.statistics.total_staked_amount = total_staked_tokens;
+        self.statistics.increase_stake_amount(stake_amount);
         self.internal_deposit(account_id, lst_tokens);
     }
 
@@ -277,7 +277,7 @@ impl LiquidStakingToken {
             .with_unused_gas_weight(0)
             .modify_state_after_stake(
                 &args.receiver_id,
-                new_total_staked_amount,
+                stake_amount,
                 deposit_amount,
                 lst_tokens,
                 is_contract_staking,

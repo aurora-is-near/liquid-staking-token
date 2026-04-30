@@ -119,8 +119,8 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | # | Scenario | Status |
 |---|----------|--------|
 | 68 | Two users stake and unstake independently (different amounts, different timings) | **[covered]** |
-| 69 | Two users stake concurrently → `total_staked_amount` accumulates correctly | **[missing]** |
-| 70 | User A stakes, User B unstakes (independent queue entries) | **[missing]** |
+| 69 | Two users stake concurrently → `total_staked_amount` accumulates correctly | **[covered]** |
+| 70 | User A unstakes while User B stakes in the same block | **[covered]** |
 | 71 | User A fully unstakes while User B still has stake → supply goes to zero mid-life | **[missing]** |
 
 ---
@@ -148,6 +148,6 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | Withdrawal | 8 | 4 | 12 |
 | Storage management | 0 | 7 | 7 |
 | NEP-141 operations | 0 | 6 | 6 |
-| Multi-user | 1 | 3 | 4 |
+| Multi-user | 3 | 1 | 4 |
 | Access control | 0 | 6 | 6 |
-| **Total** | **47** | **30** | **77** |
+| **Total** | **49** | **28** | **77** |
