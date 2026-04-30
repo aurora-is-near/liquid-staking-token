@@ -11,7 +11,7 @@ use crate::env::pool::StakingPool;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
 use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
-const ACCOUNT_NOT_FOUND_ERROR: &str = "Account is not found in the unstake queue";
+const DISTRIBUTION_NOT_FOUND_ERROR: &str = "No distribution for the given hash";
 const INSUFFICIENT_BALANCE_ERROR: &str = "The account doesn't have enough balance";
 const ZERO_AMOUNT_ERROR: &str = "The amount should be a positive number";
 
@@ -123,7 +123,7 @@ async fn test_withdraw_with_modified_unstake_message_fails() -> TestResult {
 
     let modified_unstake_message = unstake_message(bob.id(), &WithdrawTokens::Native);
     let result = env.lst.withdraw(alice, &modified_unstake_message).await;
-    assert_transaction_failure_contains(result, ACCOUNT_NOT_FOUND_ERROR);
+    assert_transaction_failure_contains(result, DISTRIBUTION_NOT_FOUND_ERROR);
 
     assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
 
