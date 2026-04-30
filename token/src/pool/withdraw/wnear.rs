@@ -48,20 +48,16 @@ impl LiquidStakingToken {
             let refund = amount_to_send.saturating_sub(consumed);
             let delivered = consumed.saturating_add(storage_to_pay);
 
-            let entry = self
-                .unstake_queue
-                .get_mut(&msg_hash)
-                .unwrap_or_else(|| env::panic_str("No distribution for the given hash"))
-                .as_locked_mut()
-                .unwrap_or_else(|| {
-                    env::panic_str("The user distribution should be locked at this point")
-                });
+            // Update the in-flight (locked) tranche under `msg_hash`. There
+            // is at most one such tranche per `msg_hash` at any moment, so
+            // we always update the same one this attempt locked. Any
+            // re-unstakes that arrived concurrently are appended as
+            // separate, unlocked tranches and stay untouched here.
+            let tranche = self.withdrawal_requests.locked_tranche_mut(&msg_hash);
 
             // Decrement the queued claim by what this attempt actually
-            // delivered (consumed wNEAR + paid storage). This survives any
-            // re-unstake that happened concurrently with the chain — the
-            // re-unstake's added claim stays.
-            let new_amount = entry
+            // delivered (consumed wNEAR + paid storage).
+            let new_amount = tranche
                 .withdrawal_amount
                 .checked_sub(delivered)
                 .unwrap_or_else(|| {
@@ -69,13 +65,13 @@ impl LiquidStakingToken {
                 });
 
             if new_amount.is_zero() {
-                self.unstake_queue.remove(&msg_hash);
+                self.withdrawal_requests.remove_request(&msg_hash);
             } else {
-                entry.withdrawal_amount = new_amount;
-                entry.wnear_residual = refund;
+                tranche.withdrawal_amount = new_amount;
+                tranche.wnear_residual = refund;
 
                 if storage_to_pay > NearToken::ZERO {
-                    entry.storage_was_paid = true;
+                    tranche.storage_was_paid = true;
                 }
             }
 
@@ -99,7 +95,7 @@ impl LiquidStakingToken {
 
 impl LiquidStakingToken {
     pub(super) fn withdraw_wnear(
-        &mut self,
+        &self,
         amount: NearToken,
         args: UnstakeMessage,
         msg_hash: CryptoHash,
@@ -123,20 +119,14 @@ impl LiquidStakingToken {
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
-        // Read the per-entry state set by prior attempts:
+        // Read the in-flight tranche state set by prior attempts:
         //   - wnear_residual: how much of `amount` is already wNEAR at this
         //     contract (refunded back from a prior partial ft_transfer).
         //   - storage_was_paid: whether a prior attempt already registered
         //     `args.receiver_id` on the wNEAR contract.
-        let (wnear_residual, storage_was_paid) = self
-            .unstake_queue
-            .get_mut(&msg_hash)
-            .unwrap_or_else(|| env::panic_str("No distribution for the given hash"))
-            .as_locked()
-            .map_or_else(
-                || env::panic_str("The user distribution should be locked at this point"),
-                |entry| (entry.wnear_residual, entry.storage_was_paid),
-            );
+        let tranche = self.withdrawal_requests.locked_tranche(&msg_hash);
+        let wnear_residual = tranche.wnear_residual;
+        let storage_was_paid = tranche.storage_was_paid;
 
         // Storage_deposit is paid at most once per queue entry — only when
         // the user requested one and a prior attempt didn't already pay it.

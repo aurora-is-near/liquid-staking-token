@@ -1,16 +1,13 @@
-use defuse_near_utils::Lock;
 use near_contract_standards::fungible_token::FungibleToken;
 use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_plugins::{AccessControlRole, AccessControllable, Pausable, Upgradable, access_control};
 use near_sdk::borsh::BorshDeserialize;
 use near_sdk::borsh::BorshSerialize;
-use near_sdk::store::IterableMap;
 use near_sdk::{
-    AccountId, BorshStorageKey, CryptoHash, NearToken, PanicOnDefault, PublicKey, env, near,
-    require,
+    AccountId, BorshStorageKey, NearToken, PanicOnDefault, PublicKey, env, near, require,
 };
 
-use crate::pool::{PoolStatistics, UserDistribution};
+use crate::pool::{PoolStatistics, WithdrawalRequests};
 
 mod core;
 mod metadata;
@@ -27,7 +24,7 @@ pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 #[borsh(crate = "near_sdk::borsh")]
 enum StorageKey {
     FungibleToken,
-    UnstakeQueue,
+    WithdrawalRequests,
 }
 
 #[derive(AccessControlRole, Clone, Copy)]
@@ -53,21 +50,21 @@ enum Role {
 )]
 #[near(contract_state)]
 pub struct LiquidStakingToken {
-    /// The underlying fungible token represented LST token.
+    /// Underlying fungible token represented LST token.
     token: FungibleToken,
-    /// The metadata of the LST token.
+    /// Metadata of the LST token.
     metadata: FungibleTokenMetadata,
-    /// The queue for unstake requests.
-    unstake_queue: IterableMap<CryptoHash, Lock<UserDistribution>>,
-    /// The ID of the account that owns the contract.
+    /// User withdrawal requests.
+    withdrawal_requests: WithdrawalRequests,
+    /// ID of the account that owns the contract.
     owner_id: AccountId,
-    /// The ID of the account that holds wNEAR.
+    /// ID of the account that holds wNEAR.
     wnear_id: AccountId,
-    /// The ID of the account that holds treasury.
+    /// ID of the account that holds treasury.
     treasury_id: AccountId,
-    /// The public key of the validator.
+    /// Public key of the validator.
     validator_public_key: PublicKey,
-    /// The pool statistics.
+    /// Pool statistics.
     statistics: PoolStatistics,
 }
 
@@ -102,7 +99,7 @@ impl LiquidStakingToken {
         let mut contract = Self {
             token,
             metadata,
-            unstake_queue: IterableMap::new(StorageKey::UnstakeQueue),
+            withdrawal_requests: WithdrawalRequests::new(StorageKey::WithdrawalRequests),
             owner_id: owner_id.clone(),
             wnear_id,
             treasury_id,

@@ -148,20 +148,10 @@ impl LiquidStakingToken {
     ) -> PromiseOrValue<U128> {
         if env::promise_result_checked(0, 0).is_ok() {
             near_sdk::log!("Unstake successful");
-            let epoch_id = env::epoch_height();
-            let user_distribution = self
-                .unstake_queue
-                .entry(msg_hash)
-                .or_default()
-                .as_inner_unchecked_mut();
+            let current_epoch = env::epoch_height();
 
-            user_distribution.withdrawal_amount = user_distribution
-                .withdrawal_amount
-                .checked_add(near_amount)
-                .unwrap_or_else(|| env::panic_str("Overflow while increasing withdrawal amount"));
-            // It's done intentionally. Each subsequent unstaking shifts the withdrawal epoch_id by 4 epochs.
-            user_distribution.unstake_epoch = epoch_id;
-
+            self.withdrawal_requests
+                .append_request(current_epoch, msg_hash, near_amount);
             self.statistics.increase_pending_withdrawals(near_amount);
 
             PromiseOrValue::Value(0.into())
