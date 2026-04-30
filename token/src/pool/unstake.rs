@@ -181,22 +181,9 @@ impl LiquidStakingToken {
     }
 
     #[private]
-    pub fn modify_state_after_unstake(
-        &mut self,
-        unstake_amount: NearToken,
-        lst_tokens: NearToken,
-    ) -> Promise {
-        self.statistics.total_staked_amount = self
-            .statistics
-            .total_staked_amount
-            .checked_sub(unstake_amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while decreasing total staked amount"));
+    pub fn modify_state_after_unstake(&mut self, unstake_amount: NearToken, lst_tokens: NearToken) {
+        self.statistics.decrease_stake_amount(unstake_amount);
         self.internal_withdraw(&env::current_account_id(), lst_tokens);
-
-        Promise::new(env::current_account_id()).stake(
-            self.statistics.total_staked_amount,
-            self.validator_public_key.clone(),
-        )
     }
 }
 

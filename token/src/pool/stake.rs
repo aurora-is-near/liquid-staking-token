@@ -97,22 +97,13 @@ impl LiquidStakingToken {
         deposit_amount: NearToken,
         lst_tokens: NearToken,
         is_contract_staking: bool,
-    ) -> Promise {
+    ) {
         if !is_contract_staking {
             self.statistics.increase_total_balance(deposit_amount);
         }
 
-        self.statistics.total_staked_amount = self
-            .statistics
-            .total_staked_amount
-            .checked_add(stake_amount)
-            .unwrap_or_else(|| env::panic_str("Overflow while increasing total staked amount"));
+        self.statistics.increase_stake_amount(stake_amount);
         self.internal_deposit(account_id, lst_tokens);
-
-        Promise::new(env::current_account_id()).stake(
-            self.statistics.total_staked_amount,
-            self.validator_public_key.clone(),
-        )
     }
 
     #[private]
