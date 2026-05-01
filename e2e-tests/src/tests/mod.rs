@@ -5,6 +5,7 @@ use near_sdk::serde_json;
 
 mod assertions;
 mod delegators;
+mod ft;
 mod multi_user;
 mod pool;
 mod rewards;
