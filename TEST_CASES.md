@@ -129,12 +129,12 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 
 | # | Scenario | Status |
 |---|----------|--------|
-| 72 | Pause contract → `stake` fails | **[missing]** |
-| 73 | Pause contract → `withdraw` fails | **[missing]** |
-| 74 | Unpause → operations resume | **[missing]** |
-| 75 | Non-owner calls pause → fails | **[missing]** |
-| 76 | `get_owner_id` returns correct owner | **[missing]** |
-| 77 | `get_staking_key` returns correct validator key | **[missing]** |
+| 72 | Pause contract → `stake` fails | **[covered]** |
+| 73 | Pause contract → `withdraw` fails | **[covered]** |
+| 74 | Unpause → operations resume | **[covered]** |
+| 75 | Non-owner calls pause → fails | **[covered]** |
+| 76 | `get_owner_id` returns correct owner | **[covered]** |
+| 77 | `get_staking_key` returns correct validator key | **[covered]** |
 
 ---
 
@@ -149,5 +149,5 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | Storage management | 7 | 0 | 7 |
 | NEP-141 operations | 0 | 6 | 6 |
 | Multi-user | 3 | 1 | 4 |
-| Access control | 0 | 6 | 6 |
-| **Total** | **63** | **14** | **77** |
+| Access control | 6 | 0 | 6 |
+| **Total** | **69** | **8** | **77** |
