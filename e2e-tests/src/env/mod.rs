@@ -22,7 +22,7 @@ pub mod wnear;
 
 const WNEAR: &str = "wnear.sandbox";
 const INTENTS: &str = "intents.sandbox";
-const LST: &str = "lst.sandbox";
+pub const LST: &str = "lst.sandbox";
 const ALICE: &str = "alice.sandbox";
 const BOB: &str = "bob.sandbox";
 const NON_WNEAR: &str = "non_wnear.sandbox";

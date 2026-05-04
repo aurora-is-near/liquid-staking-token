@@ -130,12 +130,12 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 
 | # | Scenario | Status |
 |---|----------|--------|
-| 73 | Pause contract → `stake` fails | **[missing]** |
-| 74 | Pause contract → `withdraw` fails | **[missing]** |
-| 75 | Unpause → operations resume | **[missing]** |
-| 76 | Non-owner calls pause → fails | **[missing]** |
-| 77 | `get_owner_id` returns correct owner | **[missing]** |
-| 78 | `get_staking_key` returns correct validator key | **[missing]** |
+| 73 | Pause contract → `stake` fails | **[covered]** |
+| 74 | Pause contract → `withdraw` fails | **[covered]** |
+| 75 | Unpause → operations resume | **[covered]** |
+| 76 | Non-owner calls pause → fails | **[covered]** |
+| 77 | `get_owner_id` returns correct owner | **[covered]** |
+| 78 | `get_staking_key` returns correct validator key | **[covered]** |
 
 ---
 
