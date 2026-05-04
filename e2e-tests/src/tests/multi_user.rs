@@ -63,6 +63,35 @@ async fn unstake_and_stake_in_same_block(
     Ok(())
 }
 
+async fn partial_unstake_in_same_block(
+    env: &Env,
+    alice: &Account,
+    bob: &Account,
+    alice_unstake_message: &Value,
+    bob_unstake_message: &Value,
+    alice_unstake_amount: NearToken,
+    bob_unstake_amount: NearToken,
+) -> TestResult {
+    let alice_unstake_tx = env.lst.ft_transfer_call(
+        alice,
+        env.lst.id(),
+        alice_unstake_amount,
+        alice_unstake_message,
+    );
+    let bob_unstake_tx =
+        env.lst
+            .ft_transfer_call(bob, env.lst.id(), bob_unstake_amount, bob_unstake_message);
+    let (alice_unstake_result, bob_unstake_result) =
+        tokio::try_join!(alice_unstake_tx, bob_unstake_tx)?;
+
+    assert_eq!(
+        alice_unstake_result.outcome().block_hash,
+        bob_unstake_result.outcome().block_hash
+    );
+
+    Ok(())
+}
+
 /// Alice and Bob stake independently, unstake with different messages (different
 /// receiver_ids produce different queue keys), and each withdraws their own funds
 /// without interfering with the other.
@@ -219,6 +248,156 @@ async fn test_concurrent_stakes_then_same_block_unstake_and_stake() -> TestResul
         INIT_BALANCE
             .saturating_sub(bob_first_stake)
             .saturating_sub(bob_second_stake)
+            .saturating_sub(ONE_YOCTO)
+    );
+
+    Ok(())
+}
+
+/// Alice and Bob stake in the same block, then both partially unstake in the
+/// same block. Each keeps the remaining LST and withdraws only their own queue
+/// entry.
+#[tokio::test]
+async fn test_concurrent_stakes_then_same_block_partial_unstakes() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let bob = env.bob();
+
+    let bob_stake = STAKE_AMOUNT.saturating_div(2);
+    let alice_unstake_amount = STAKE_AMOUNT.saturating_div(2);
+    let bob_unstake_amount = bob_stake.saturating_div(2);
+    let expected_alice_lst_balance = STAKE_AMOUNT.saturating_sub(alice_unstake_amount);
+    let expected_bob_lst_balance = bob_stake.saturating_sub(bob_unstake_amount);
+    let expected_remaining_supply =
+        expected_alice_lst_balance.saturating_add(expected_bob_lst_balance);
+    let expected_pending_withdrawals = alice_unstake_amount.saturating_add(bob_unstake_amount);
+
+    stake_in_same_block(&env, alice, bob, bob_stake).await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(bob.id()).await?, bob_stake);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK
+            .saturating_add(STAKE_AMOUNT)
+            .saturating_add(bob_stake)
+    );
+
+    let alice_unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+    let bob_unstake_message = unstake_message(bob.id(), &WithdrawTokens::Native);
+    partial_unstake_in_same_block(
+        &env,
+        alice,
+        bob,
+        &alice_unstake_message,
+        &bob_unstake_message,
+        alice_unstake_amount,
+        bob_unstake_amount,
+    )
+    .await?;
+
+    assert_eq!(
+        env.lst.ft_balance_of(alice.id()).await?,
+        expected_alice_lst_balance
+    );
+    assert_eq!(
+        env.lst.ft_balance_of(bob.id()).await?,
+        expected_bob_lst_balance
+    );
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(expected_remaining_supply)
+    );
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        expected_pending_withdrawals
+    );
+
+    env.wait_unstake_cooldown().await?;
+    env.lst.withdraw(alice, &alice_unstake_message).await?;
+    env.lst.withdraw(bob, &bob_unstake_message).await?;
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.ft_balance_of(alice.id()).await?,
+        expected_alice_lst_balance
+    );
+    assert_eq!(
+        env.lst.ft_balance_of(bob.id()).await?,
+        expected_bob_lst_balance
+    );
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(expected_remaining_supply)
+    );
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(expected_alice_lst_balance)
+            .saturating_sub(NearToken::from_yoctonear(2))
+    );
+    assert_eq!(
+        bob.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(expected_bob_lst_balance)
+            .saturating_sub(NearToken::from_yoctonear(2))
+    );
+
+    Ok(())
+}
+
+/// Alice fully unstakes while Bob keeps his position. Alice's balance and
+/// pending withdrawal are cleared, but Bob's LST and total supply remain.
+#[tokio::test]
+async fn test_user_fully_unstakes_while_other_user_remains_staked() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let bob = env.bob();
+
+    let bob_stake = STAKE_AMOUNT.saturating_div(2);
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), None, None::<&str>),
+        )
+        .await?;
+    env.lst
+        .stake(bob, bob_stake, stake_message(bob.id(), None, None::<&str>))
+        .await?;
+
+    let alice_unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &alice_unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(bob.id()).await?, bob_stake);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(bob_stake)
+    );
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    env.wait_unstake_cooldown().await?;
+    env.lst.withdraw(alice, &alice_unstake_message).await?;
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(bob.id()).await?, bob_stake);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(bob_stake)
+    );
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INIT_BALANCE.saturating_sub(NearToken::from_yoctonear(2))
+    );
+    assert_eq!(
+        bob.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(bob_stake)
             .saturating_sub(ONE_YOCTO)
     );
 

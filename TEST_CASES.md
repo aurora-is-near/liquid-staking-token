@@ -56,7 +56,7 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | 31 | Unstake via `ft_transfer_call` on LST → wNEAR output to another account | **[covered]** |
 | 32 | Unstake via `ft_transfer_call` on LST → wNEAR with `ft_transfer_call` to intents (with `msg`) | **[covered]** |
 | 33 | Unstake via `ft_transfer_call` on LST → wNEAR `ft_transfer_call` to bad receiver → partial refund stays in queue | **[covered]** |
-| 34 | Unstake via `ft_transfer_call` on LST → wNEAR with `storage_deposit` | **[missing]** |
+| 34 | Unstake via `ft_transfer_call` on LST → wNEAR with `storage_deposit` | **[covered]** |
 | 35 | Unstake via intents execute → native output | **[covered]** |
 | 36 | Unstake via intents execute → wNEAR with `storage_deposit` | **[covered]** |
 | 37 | Unstake via intents execute → wNEAR without `storage_deposit` (not registered) | **[covered]** |
@@ -105,12 +105,12 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 
 | # | Scenario | Status |
 |---|----------|--------|
-| 62 | `ft_transfer` from alice to bob | **[missing]** |
-| 63 | `ft_transfer` to unregistered account → fails | **[missing]** |
-| 64 | `ft_transfer_call` from alice to a DeFi contract (not for unstaking) | **[missing]** |
-| 65 | `ft_transfer_call` to a contract that returns full refund | **[missing]** |
-| 66 | `ft_total_supply` reflects stakes and burns correctly | **[missing]** |
-| 67 | `ft_metadata` returns correct fields | **[missing]** |
+| 62 | `ft_transfer` from alice to bob | **[covered]** |
+| 63 | `ft_transfer` to unregistered account → fails | **[covered]** |
+| 64 | `ft_transfer_call` from alice to a DeFi contract (not for unstaking) | **[covered]** |
+| 65 | `ft_transfer_call` to a contract that returns full refund | **[covered]** |
+| 66 | `ft_total_supply` reflects stakes and burns correctly | **[covered]** |
+| 67 | `ft_metadata` returns correct fields | **[covered]** |
 
 ---
 
@@ -121,7 +121,8 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 | 68 | Two users stake and unstake independently (different amounts, different timings) | **[covered]** |
 | 69 | Two users stake concurrently → `total_staked_amount` accumulates correctly | **[covered]** |
 | 70 | User A unstakes while User B stakes in the same block | **[covered]** |
-| 71 | User A fully unstakes while User B still has stake → supply goes to zero mid-life | **[missing]** |
+| 71 | User A fully unstakes while User B still has stake → User A goes to zero, Bob's supply remains | **[covered]** |
+| 72 | Two users stake concurrently, then both partially unstake in the same block | **[covered]** |
 
 ---
 
@@ -129,12 +130,12 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 
 | # | Scenario | Status |
 |---|----------|--------|
-| 72 | Pause contract → `stake` fails | **[missing]** |
-| 73 | Pause contract → `withdraw` fails | **[missing]** |
-| 74 | Unpause → operations resume | **[missing]** |
-| 75 | Non-owner calls pause → fails | **[missing]** |
-| 76 | `get_owner_id` returns correct owner | **[missing]** |
-| 77 | `get_staking_key` returns correct validator key | **[missing]** |
+| 73 | Pause contract → `stake` fails | **[covered]** |
+| 74 | Pause contract → `withdraw` fails | **[covered]** |
+| 75 | Unpause → operations resume | **[covered]** |
+| 76 | Non-owner calls pause → fails | **[covered]** |
+| 77 | `get_owner_id` returns correct owner | **[covered]** |
+| 78 | `get_staking_key` returns correct validator key | **[covered]** |
 
 ---
 
@@ -144,10 +145,10 @@ Existing tests are marked **[covered]**; gaps are marked **[missing]**.
 |------|---------|---------|-------|
 | Staking (native) | 16 | 0 | 16 |
 | Staking (wNEAR) | 11 | 0 | 11 |
-| Unstaking | 14 | 1 | 15 |
+| Unstaking | 15 | 0 | 15 |
 | Withdrawal | 12 | 0 | 12 |
 | Storage management | 7 | 0 | 7 |
-| NEP-141 operations | 0 | 6 | 6 |
-| Multi-user | 3 | 1 | 4 |
+| NEP-141 operations | 6 | 0 | 6 |
+| Multi-user | 5 | 0 | 5 |
 | Access control | 0 | 6 | 6 |
-| **Total** | **63** | **14** | **77** |
+| **Total** | **72** | **6** | **78** |
