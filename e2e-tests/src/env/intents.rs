@@ -88,7 +88,7 @@ pub trait IntentsSigner: Signer {
         token: &AccountId,
         receiver_id: &AccountId,
         amount: NearToken,
-        msg: Option<impl ToString>,
+        msg: Option<impl Serialize>,
     ) -> MultiPayload {
         self.sign_defuse_message(
             intents_contract,
@@ -101,7 +101,10 @@ pub trait IntentsSigner: Signer {
                         receiver_id: receiver_id.clone(),
                         amount: amount.as_yoctonear().into(),
                         memo: None,
-                        msg: msg.map(|m| m.to_string()),
+                        msg: msg.map(|m| {
+                            near_sdk::serde_json::to_string(&m)
+                                .expect("Failed to serialize the message for the withdraw intent")
+                        }),
                         storage_deposit: None,
                         min_gas: None,
                     }

@@ -6,10 +6,10 @@ use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 #[near]
 impl LiquidStakingToken {
     #[private]
-    pub fn on_withdraw_native(&mut self, msg_hash: CryptoHash, amount: NearToken) {
+    pub fn on_withdraw_native(&mut self, hash: CryptoHash, amount: NearToken) {
         if env::promise_result_checked(0, 0).is_ok() {
             near_sdk::log!("Native NEAR withdrawn successfully");
-            self.withdrawal_requests.remove_request(&msg_hash);
+            self.withdrawal_requests.remove_request(&hash);
             self.statistics.decrease_total_balance(amount);
             self.statistics.decrease_pending_withdrawals(amount);
         } else {
@@ -22,7 +22,7 @@ impl LiquidStakingToken {
     pub(super) fn withdraw_native(
         receiver_id: AccountId,
         amount: NearToken,
-        msg_hash: CryptoHash,
+        hash: CryptoHash,
     ) -> Promise {
         near_sdk::log!(
             "Withdraw to {receiver_id} amount: {} yoctoNEAR",
@@ -34,12 +34,12 @@ impl LiquidStakingToken {
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(ON_WITHDRAW_NATIVE_GAS)
-                    .on_withdraw_native(msg_hash, amount),
+                    .on_withdraw_native(hash, amount),
             )
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(REMOVE_LOCK_GAS)
-                    .remove_lock(msg_hash),
+                    .remove_lock(hash),
             )
     }
 }

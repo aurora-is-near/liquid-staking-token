@@ -399,29 +399,34 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
 near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
   json-args '{ "fee_bps": 1000 }' \
   prepaid-gas '20 Tgas' \
-  attached-deposit '0 NEAR' \
+  attached-deposit '1 yoctoNEAR' \
   sign-as admin.near \
   network-config mainnet
 ```
 
 - `fee_bps` is in basis points (1 bp = 0.01%). `1000` = 10%.
 - Capped at `2_000` (20%); higher values panic.
-- Only accounts with the `Admin` role may call this method.
+- Only accounts with the `Admin` role may call this method. Requires 1 yoctoNEAR attached for full-access-key
+  confirmation.
 - The fee applies to *future* reward syncs only. Past syncs are not retroactively re-fee'd.
 
 ### View methods
 
-| Method                             | Returns                                                | Notes                                                           |
-|------------------------------------|--------------------------------------------------------|-----------------------------------------------------------------|
-| `get_exchange_rate`                | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync. |
-| `get_reward_fee_fraction`          | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                              |
-| `get_total_staked_balance`         | `NearToken`                                            | Tracked NEAR backing the LST supply.                            |
-| `get_total_pending_withdrawals`    | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                      |
-| `get_total_balance`                | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.              |
-| `get_number_of_accounts`           | `u64`                                                  | Number of LST holders.                                          |
-| `get_owner_id` / `get_treasury_id` | `AccountId`                                            | Configured roles.                                               |
-| `get_staking_key`                  | `PublicKey`                                            | Validator key the contract delegates to.                        |
-| `get_version`                      | `&'static str`                                         | Crate version baked in at build time.                           |
+| Method                                                  | Returns                                                | Notes                                                                                                                                                                                |
+|---------------------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `get_exchange_rate`                                     | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync.                                                                                                                      |
+| `get_reward_fee_fraction`                               | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                                                                                                                                                   |
+| `get_total_staked_balance`                              | `NearToken`                                            | Tracked NEAR backing the LST supply.                                                                                                                                                 |
+| `get_total_pending_withdrawals`                         | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                                                                                                                                           |
+| `get_total_balance`                                     | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.                                                                                                                                   |
+| `get_number_of_accounts`                                | `u64`                                                  | Number of LST holders.                                                                                                                                                               |
+| `get_owner_id` / `get_treasury_id`                      | `AccountId`                                            | Configured roles.                                                                                                                                                                    |
+| `get_staking_key`                                       | `PublicKey`                                            | Validator key the contract delegates to.                                                                                                                                             |
+| `get_version`                                           | `&'static str`                                         | Crate version baked in at build time.                                                                                                                                                |
+| `get_withdrawal_request_tranches({ hash })`             | `Option<Vec<Tranche>>`                                 | Every tranche queued under `hash` (locked + unlocked, lock state hidden), or `None` if the hash has no entry. Use to display a single user's pending withdrawals.                    |
+| `get_withdrawal_requests({ skip, limit })`              | `Vec<WithdrawalRequest>`                               | Paginated dump of every queue entry: `{ hash (base58), tranches }`. `limit` is silently clamped to 100. Iteration order is **not stable across removals**.                           |
+| `get_hashes_available_for_withdrawal({ skip, limit })`  | `Vec<CryptoHash>`                                      | Paginated list of hashes with at least one **unlocked + matured** tranche — i.e. the set on which the next `withdraw` would succeed right now. `limit` is clamped to 100.            |
+| `get_withdrawal_requests_count`                         | `u32`                                                  | Number of distinct queue entries. Pair with `get_withdrawal_requests` for stable totals.                                                                                             |
 
 ---
 
@@ -443,8 +448,9 @@ staging, deploying, and upgrade-duration management are all gated on the `Admin`
 
 ## Admin operations
 
-All methods below are gated on the `Admin` role, granted to `owner_id` at init.
-`set_protocol_fee_bps` is documented under [Rewards and protocol fee](#set_protocol_fee_bps-admin-only).
+All methods below are gated on the `Admin` role, granted to `owner_id` at init, and require 1 yoctoNEAR attached
+for full-access-key confirmation. `set_protocol_fee_bps` is documented under
+[Rewards and protocol fee](#set_protocol_fee_bps-admin-only).
 
 ### `set_validator_public_key` — change the staking validator
 
@@ -452,13 +458,14 @@ All methods below are gated on the `Admin` role, granted to `owner_id` at init.
 near contract call-function as-transaction <CONTRACT_ID> set_validator_public_key \
   json-args '{ "validator_public_key": "ed25519:<NEW_BASE58_KEY>" }' \
   prepaid-gas '20 Tgas' \
-  attached-deposit '0 NEAR' \
+  attached-deposit '1 yoctoNEAR' \
   sign-as admin.near \
   network-config mainnet
 ```
 
-- Replaces the in-state validator public key. The contract's currently-locked NEAR remains bonded to the *old*
-  validator until a stake action fires with the new key.
+- Replaces the in-state validator public key. Requires 1 yoctoNEAR attached for full-access-key confirmation. The
+  contract's currently-locked NEAR remains bonded to the *old* validator until a stake action fires with the new
+  key.
 - Migration is propagated by the next stake-bearing operation: `stake`, `unstake`, or `ping` (after rewards are
   detected). NEAR's runtime then schedules unbonding from the old validator over the standard 4-epoch period before
   bonding to the new one.
@@ -483,6 +490,25 @@ near contract call-function as-transaction <CONTRACT_ID> add_full_access_key \
 - Intended as a break-glass mechanism, primarily to recover from a dead validator that prevents `ping` from firing a
   fresh stake. Use sparingly: there is no on-chain `delete_key` method, so a granted key can only be removed via a
   contract upgrade.
+
+### `force_release_lock` — clear a stuck in-flight withdrawal
+
+```bash
+near contract call-function as-transaction <CONTRACT_ID> force_release_lock \
+  json-args '{ "hash": [/* 32 bytes */] }' \
+  prepaid-gas '20 Tgas' \
+  attached-deposit '1 yoctoNEAR' \
+  sign-as admin.near \
+  network-config mainnet
+```
+
+- Unlocks the in-flight (locked) tranche queued under `hash`, leaving any other tranches untouched.
+- Returns `true` if a locked tranche was found and released, `false` otherwise.
+- Intended as a break-glass for the rare case where the tail `remove_lock` callback of a `withdraw` chain fails
+  to fire (gas exhaustion in a deeply nested receipt, etc.) and the in-flight tranche stays locked, blocking
+  every subsequent `withdraw` for that hash with `"Unstake request is already in progress"`. After release, the
+  user can retry `withdraw` normally.
+- Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ---
 

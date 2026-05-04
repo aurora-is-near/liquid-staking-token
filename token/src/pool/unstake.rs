@@ -143,7 +143,7 @@ impl LiquidStakingToken {
         &mut self,
         lst_amount: NearToken,
         near_amount: NearToken,
-        msg_hash: CryptoHash,
+        hash: CryptoHash,
         unstake_trigger: UnstakeTrigger,
     ) -> PromiseOrValue<U128> {
         if env::promise_result_checked(0, 0).is_ok() {
@@ -151,7 +151,7 @@ impl LiquidStakingToken {
             let current_epoch = env::epoch_height();
 
             self.withdrawal_requests
-                .append_request(current_epoch, msg_hash, near_amount);
+                .append_request(current_epoch, hash, near_amount);
             self.statistics.increase_pending_withdrawals(near_amount);
 
             PromiseOrValue::Value(0.into())
@@ -185,13 +185,17 @@ impl LiquidStakingToken {
     pub(crate) fn handle_unstaking(
         &mut self,
         lst_amount: NearToken,
-        args: &UnstakeMessage,
+        message: UnstakeMessage,
         unstake_trigger: UnstakeTrigger,
     ) -> Promise {
         require!(
             lst_amount > NearToken::ZERO,
             "Unstake amount must be more than 0"
         );
+
+        let hash = message
+            .hash()
+            .unwrap_or_else(|_| env::panic_str("Failed to hash unstake message"));
 
         self.sync_rewards_internal(None);
 
@@ -206,10 +210,6 @@ impl LiquidStakingToken {
             unstake_amount <= self.statistics.total_staked_amount,
             "Attempt to unstake more than staked"
         );
-
-        let msg_hash = args
-            .hash()
-            .unwrap_or_else(|_| env::panic_str("Failed to hash the message"));
 
         let new_total_staked_amount = self
             .statistics
@@ -230,7 +230,7 @@ impl LiquidStakingToken {
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
                 .with_static_gas(ON_UNSTAKE_GAS)
-                .on_unstake(lst_amount, unstake_amount, msg_hash, unstake_trigger),
+                .on_unstake(lst_amount, unstake_amount, hash, unstake_trigger),
         )
     }
 }

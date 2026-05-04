@@ -18,7 +18,11 @@ const SELF_WITHDRAW_STORAGE_DEPOSIT_ERROR: &str =
     "There couldn't be a storage_deposit for the current account withdrawal";
 
 fn refund_once_message(refund_amount: NearToken) -> String {
-    format!("refund_once:{}", refund_amount.as_yoctonear())
+    near_sdk::serde_json::json!({
+        "refund_once": true,
+        "refund_amount": refund_amount,
+    })
+    .to_string()
 }
 
 fn assert_transaction_failure_contains<T>(result: anyhow::Result<T>, expected: &str) {

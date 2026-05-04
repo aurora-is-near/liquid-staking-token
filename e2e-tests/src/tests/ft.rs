@@ -1,6 +1,5 @@
 use liquid_staking_token::pool::WithdrawTokens;
 use near_api::Data;
-use near_api::NearToken;
 use near_sdk::serde_json::{Value, json};
 use testresult::TestResult;
 
@@ -11,10 +10,6 @@ use crate::tests::assertions::assert_transaction_failure_contains;
 use crate::tests::{STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
 
 const ACCOUNT_NOT_REGISTERED_ERROR: &str = "is not registered";
-
-fn refund_message(refund_amount: NearToken) -> String {
-    refund_amount.as_yoctonear().to_string()
-}
 
 #[tokio::test]
 async fn test_ft_transfer_from_alice_to_bob() -> TestResult {
@@ -96,12 +91,7 @@ async fn test_ft_transfer_call_to_contract_consumes_tokens() -> TestResult {
         .await?;
 
     env.lst
-        .ft_transfer_call(
-            alice,
-            ft_receiver.id(),
-            transfer_amount,
-            refund_message(ZERO_AMOUNT),
-        )
+        .ft_transfer_call(alice, ft_receiver.id(), transfer_amount, ZERO_AMOUNT)
         .await?;
 
     assert_eq!(
@@ -135,12 +125,7 @@ async fn test_ft_transfer_call_to_contract_returns_full_refund() -> TestResult {
         .await?;
 
     env.lst
-        .ft_transfer_call(
-            alice,
-            ft_receiver.id(),
-            STAKE_AMOUNT,
-            refund_message(STAKE_AMOUNT),
-        )
+        .ft_transfer_call(alice, ft_receiver.id(), STAKE_AMOUNT, STAKE_AMOUNT)
         .await?;
 
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
