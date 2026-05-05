@@ -48,7 +48,7 @@ async fn test_withdraw_before_cooldown_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -110,7 +110,7 @@ async fn test_withdraw_with_modified_unstake_message_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -145,7 +145,7 @@ async fn test_unstake_native_by_withdrawing_lst_from_intents() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), false, Some(alice.id())),
         )
         .await?;
 
@@ -196,7 +196,7 @@ async fn test_unstake_native_by_sending_lst_back() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -241,7 +241,7 @@ async fn test_partial_unstake_preserves_remaining_lst() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -293,7 +293,7 @@ async fn test_two_unstakes_to_native_by_sending_lst_from_wnear() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -354,7 +354,7 @@ async fn test_unstake_more_than_staked_amount_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -391,7 +391,7 @@ async fn test_unstake_with_invalid_message_format_refunds_and_skips_queue() -> T
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -422,7 +422,7 @@ async fn test_unstake_zero_tokens_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -454,7 +454,7 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_itself() -> Test
         .stake(
             &env.lst.as_account(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&String>),
+            stake_message(env.lst.id(), false, None::<&String>),
         )
         .await?;
 
@@ -501,7 +501,7 @@ async fn test_stake_native_near_by_itself_and_unstake_native_to_alice() -> TestR
         .stake(
             &env.lst.as_account(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&String>),
+            stake_message(env.lst.id(), false, None::<&String>),
         )
         .await?;
 
@@ -556,14 +556,14 @@ async fn test_stake_native_near_by_alice_and_bob_and_unstake_using_withdraw() ->
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
     env.lst
         .stake(
             bob,
             STAKE_AMOUNT,
-            stake_message(bob.id(), None, None::<&String>),
+            stake_message(bob.id(), false, None::<&String>),
         )
         .await?;
 

@@ -139,7 +139,7 @@ near contract call-function as-transaction <CONTRACT_ID> stake \
   json-args '{
     "args": {
       "receiver_id": "alice.near",
-      "storage_deposit": "1250000000000000000000",
+      "is_storage_deposit": true,
       "msg":  null,
       "memo": null,
       "min_gas": null,
@@ -152,7 +152,8 @@ near contract call-function as-transaction <CONTRACT_ID> stake \
   network-config mainnet
 ```
 
-The full attached deposit is staked. The minted LST tokens are transferred to `receiver_id`.
+The attached deposit is used for staking. If `is_storage_deposit` is `true`, a fixed `0.00125 NEAR` is first reserved
+for registration, and only the remainder is staked. The minted LST tokens are transferred to `receiver_id`.
 
 ---
 
@@ -167,7 +168,7 @@ near contract call-function as-transaction wrap.near ft_transfer_call \
     "receiver_id": "<CONTRACT_ID>",
     "amount":      "10000000000000000000000000",
     "memo":        null,
-    "msg": "{\"receiver_id\":\"alice.near\",\"storage_deposit\":null,\"msg\":null,\"memo\":null,\"min_gas\":null}"
+    "msg": "{\"receiver_id\":\"alice.near\",\"is_storage_deposit\":false,\"msg\":null,\"memo\":null,\"min_gas\":null}"
   }' \
   prepaid-gas '100 Tgas' \
   attached-deposit '1 yoctoNEAR' \
@@ -187,23 +188,23 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 
 ```jsonc
 {
-  "receiver_id":      "alice.near",         // required
-  "storage_deposit":  "1250000000000000000000", // optional
-  "msg":              "...",                // optional
-  "memo":             "my stake",          // optional
-  "min_gas":          35000000000000,      // optional
-  "refund_message":   { ... }              // optional — see below
+  "receiver_id":         "alice.near",        // required
+  "is_storage_deposit":  true,                // optional, default false
+  "msg":                 "...",               // optional
+  "memo":                "my stake",          // optional
+  "min_gas":             35000000000000,      // optional
+  "refund_message":      { ... }              // optional — see below
 }
 ```
 
-| Field             | Type                           | Required | Description                                                                                                                                                                                                                                                                                                                              |
-|-------------------|--------------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `receiver_id`     | `AccountId`                    | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                                                                                                         |
-| `storage_deposit` | `NearToken` (yoctoNEAR string) | No       | If set, this amount is deducted from the staked NEAR and used to call `storage_deposit` on the LST contract for `receiver_id`, registering the account before the token transfer. Required when `receiver_id` is not yet registered on the LST contract.                                                                                 |
-| `msg`             | `String`                       | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                 |
-| `memo`            | `String`                       | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                               |
-| `min_gas`         | `Gas` (u64)                    | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                            |
-| `refund_message`  | `UnstakeMessage`               | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery. |
+| Field                | Type             | Required | Description                                                                                                                                                                                                                                                                                                                              |
+|----------------------|------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `receiver_id`        | `AccountId`      | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                                                                                                         |
+| `is_storage_deposit` | `bool`           | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the staked amount and calls `storage_deposit` on the LST contract for `receiver_id`, registering the account before the token transfer. Required when `receiver_id` is not yet registered on the LST contract. Defaults to `false`.                           |
+| `msg`                | `String`         | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                 |
+| `memo`               | `String`         | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                               |
+| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                            |
+| `refund_message`     | `UnstakeMessage` | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery. |
 
 **Token amount minted.** The amount of LST minted is `stake_amount * total_lst_supply / total_staked_amount`, floored
 (1:1 only while no LST has been minted or no rewards have been synced). Once `ping` has folded validator rewards into
@@ -268,22 +269,22 @@ The unstaked NEAR is sent as a native NEAR transfer to `receiver_id` once `withd
 ```jsonc
 {
   "wnear": {
-    "storage_deposit": "1250000000000000000000", // optional
-    "msg":             "...",                    // optional
-    "memo":            "my unstake",             // optional
-    "min_gas":         35000000000000            // optional
+    "is_storage_deposit": true,           // optional, default false
+    "msg":                "...",          // optional
+    "memo":               "my unstake",   // optional
+    "min_gas":            35000000000000  // optional
   }
 }
 ```
 
 The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 
-| Sub-field         | Type                           | Required | Description                                                                                                                                                                            |
-|-------------------|--------------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `storage_deposit` | `NearToken` (yoctoNEAR string) | No       | If set, this amount is deducted from the withdrawn NEAR and used to call `storage_deposit` on the wNEAR contract for `receiver_id`, registering the account before the wNEAR transfer. |
-| `msg`             | `String`                       | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                      |
-| `memo`            | `String`                       | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                        |
-| `min_gas`         | `Gas` (u64)                    | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                          |
+| Sub-field            | Type        | Required | Description                                                                                                                                                                                                                                  |
+|----------------------|-------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `is_storage_deposit` | `bool`      | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the withdrawn amount and calls `storage_deposit` on the wNEAR contract for `receiver_id`, registering the account before the wNEAR transfer. Defaults to `false`. |
+| `msg`                | `String`    | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                                                                            |
+| `memo`               | `String`    | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                                                                              |
+| `min_gas`            | `Gas` (u64) | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                                                                                |
 
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
@@ -314,16 +315,21 @@ A few consequences worth knowing:
 
 - **`near_deposit` is skipped only for the residual portion.** A pure retry (no re-unstake in between) sends just the
   residual wNEAR; no fresh NEAR is converted.
-- **`storage_deposit` is paid at most once per in-flight tranche.** The first attempt that requests one registers the
-  receiver on the wNEAR contract; subsequent retries skip the registration step regardless of what `storage_deposit`
-  the `UnstakeMessage` carries.
+- **The wNEAR storage deposit is paid at most once per in-flight tranche.** The first attempt that flags
+  `is_storage_deposit: true` registers the receiver on the wNEAR contract; subsequent retries skip the
+  registration step regardless of the flag.
 - **A partial-refund residual remains immediately reclaimable.** The leftover stays in the queue as an
   already-matured tranche and is picked up by the next `withdraw` along with any other matured tranches under the
   same hash — no fresh 4-epoch wait. Re-unstaking into the same hash in the meantime simply appends a new
   independent tranche; the residual is unaffected.
-- **Total failure of `ft_on_transfer` (panic, no `ft_resolve_transfer` refund) leaves the in-flight tranche
-  untouched.** The terminal callback releases the lock and the user may simply call `withdraw` again — no cooldown
-  reset, no residual recorded.
+- **An oversize `ft_on_transfer` result is treated as full delivery.** A misbehaving receiver that returns a
+  payload exceeding the contract's result-size cap (~42 bytes) trips a parse error in our `on_withdraw_wnear`
+  callback. The wNEAR transfer itself succeeded, so we mark the in-flight tranche as fully consumed and the user's
+  claim is zeroed. The same code path also fires when the wNEAR contract itself panics (e.g. gas exhaustion) —
+  this is a known limitation; in practice wNEAR is robust enough that real panics are extremely rare.
+- **A failed plain `ft_transfer` (no `msg`)** rolls back the callback receipt; the in-flight tranche stays locked
+  with its full claim intact, and the chain's terminal `remove_lock` callback unlocks it so the user can retry —
+  no cooldown reset, no residual recorded.
 
 ---
 
@@ -412,21 +418,21 @@ near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
 
 ### View methods
 
-| Method                                                  | Returns                                                | Notes                                                                                                                                                                                |
-|---------------------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `get_exchange_rate`                                     | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync.                                                                                                                      |
-| `get_reward_fee_fraction`                               | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                                                                                                                                                   |
-| `get_total_staked_balance`                              | `NearToken`                                            | Tracked NEAR backing the LST supply.                                                                                                                                                 |
-| `get_total_pending_withdrawals`                         | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                                                                                                                                           |
-| `get_total_balance`                                     | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.                                                                                                                                   |
-| `get_number_of_accounts`                                | `u64`                                                  | Number of LST holders.                                                                                                                                                               |
-| `get_owner_id` / `get_treasury_id`                      | `AccountId`                                            | Configured roles.                                                                                                                                                                    |
-| `get_staking_key`                                       | `PublicKey`                                            | Validator key the contract delegates to.                                                                                                                                             |
-| `get_version`                                           | `&'static str`                                         | Crate version baked in at build time.                                                                                                                                                |
-| `get_withdrawal_request_tranches({ hash })`             | `Option<Vec<Tranche>>`                                 | Every tranche queued under `hash` (locked + unlocked, lock state hidden), or `None` if the hash has no entry. Use to display a single user's pending withdrawals.                    |
-| `get_withdrawal_requests({ skip, limit })`              | `Vec<WithdrawalRequest>`                               | Paginated dump of every queue entry: `{ hash (base58), tranches }`. `limit` is silently clamped to 100. Iteration order is **not stable across removals**.                           |
-| `get_hashes_available_for_withdrawal({ skip, limit })`  | `Vec<CryptoHash>`                                      | Paginated list of hashes with at least one **unlocked + matured** tranche — i.e. the set on which the next `withdraw` would succeed right now. `limit` is clamped to 100.            |
-| `get_withdrawal_requests_count`                         | `u32`                                                  | Number of distinct queue entries. Pair with `get_withdrawal_requests` for stable totals.                                                                                             |
+| Method                                                 | Returns                                                | Notes                                                                                                                                                                     |
+|--------------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `get_exchange_rate`                                    | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync.                                                                                                           |
+| `get_reward_fee_fraction`                              | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                                                                                                                                        |
+| `get_total_staked_balance`                             | `NearToken`                                            | Tracked NEAR backing the LST supply.                                                                                                                                      |
+| `get_total_pending_withdrawals`                        | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                                                                                                                                |
+| `get_total_balance`                                    | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.                                                                                                                        |
+| `get_number_of_accounts`                               | `u64`                                                  | Number of LST holders.                                                                                                                                                    |
+| `get_owner_id` / `get_treasury_id`                     | `AccountId`                                            | Configured roles.                                                                                                                                                         |
+| `get_staking_key`                                      | `PublicKey`                                            | Validator key the contract delegates to.                                                                                                                                  |
+| `get_version`                                          | `&'static str`                                         | Crate version baked in at build time.                                                                                                                                     |
+| `get_withdrawal_request_tranches({ hash })`            | `Option<Vec<Tranche>>`                                 | Every tranche queued under `hash` (locked + unlocked, lock state hidden), or `None` if the hash has no entry. Use to display a single user's pending withdrawals.         |
+| `get_withdrawal_requests({ skip, limit })`             | `Vec<WithdrawalRequest>`                               | Paginated dump of every queue entry: `{ hash (base58), tranches }`. `limit` is silently clamped to 100. Iteration order is **not stable across removals**.                |
+| `get_hashes_available_for_withdrawal({ skip, limit })` | `Vec<CryptoHash>`                                      | Paginated list of hashes with at least one **unlocked + matured** tranche — i.e. the set on which the next `withdraw` would succeed right now. `limit` is clamped to 100. |
+| `get_withdrawal_requests_count`                        | `u32`                                                  | Number of distinct queue entries. Pair with `get_withdrawal_requests` for stable totals.                                                                                  |
 
 ---
 

@@ -7,7 +7,8 @@ use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, re
 
 use crate::pool::unstake::UnstakeTrigger;
 use crate::pool::{
-    MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
+    FT_STORAGE_DEPOSIT, MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage,
+    calculate_min_gas,
 };
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
@@ -18,21 +19,21 @@ const REFUND_WNEAR_DEPOSIT_GAS: Gas = Gas::from_tgas(1);
 #[near(serializers = [json])]
 #[serde(rename_all = "lowercase")]
 pub struct StakeMessage {
-    /// The account ID to which the staked tokens should be sent.
+    /// Account ID to which the staked tokens should be sent.
     pub receiver_id: AccountId,
-    /// A message that will be passed to the `ft_transfer_call` callback.
+    /// Message that will be passed to the `ft_transfer_call` callback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msg: Option<String>,
-    /// A memo that will be passed to the `ft_transfer_call` callback.
+    /// Memo that will be passed to the `ft_transfer_call` callback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
-    /// The amount of storage deposit to be attached to the account.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage_deposit: Option<NearToken>,
-    /// The maximum amount of gas that can be used for the `ft_on_transfer` callback.
+    /// Flag indicating whether a storage deposit should be attached to the account.
+    #[serde(default)]
+    pub is_storage_deposit: bool,
+    /// Minimum amount of gas that can be used for the `ft_on_transfer` callback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_gas: Option<Gas>,
-    /// A message is used in case of an error or refund in the `ft_on_transfer` callback.
+    /// Message is used in case of an error or refund in the `ft_on_transfer` callback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refund_message: Option<UnstakeMessage>,
 }
@@ -234,11 +235,15 @@ impl LiquidStakingToken {
         deposit_token: DepositToken,
         is_contract_staking: bool,
     ) -> Promise {
-        let stake_amount = deposit_amount
-            .checked_sub(args.storage_deposit.unwrap_or_default())
-            .unwrap_or_else(|| {
-                env::panic_str("Storage deposit cannot be greater than the staked amount")
-            });
+        let stake_amount = if args.is_storage_deposit {
+            deposit_amount
+                .checked_sub(FT_STORAGE_DEPOSIT)
+                .unwrap_or_else(|| {
+                    env::panic_str("Storage deposit cannot be greater than the staked amount")
+                })
+        } else {
+            deposit_amount
+        };
 
         require!(
             stake_amount > NearToken::ZERO,
@@ -265,9 +270,9 @@ impl LiquidStakingToken {
             .transfer(stake_amount)
             .stake(new_total_staked_amount, self.validator_public_key.clone());
 
-        if let Some(storage_deposit) = args.storage_deposit {
+        if args.is_storage_deposit {
             promise = ext_storage_management::ext_on(promise)
-                .with_attached_deposit(storage_deposit)
+                .with_attached_deposit(FT_STORAGE_DEPOSIT)
                 .with_static_gas(STORAGE_DEPOSIT_GAS)
                 .storage_deposit(Some(args.receiver_id.clone()), Some(false));
         }

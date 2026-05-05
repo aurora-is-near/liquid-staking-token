@@ -20,12 +20,12 @@ const STAKE_AMOUNT: NearToken = NearToken::from_near(1_000);
 
 fn stake_message(
     receiver_id: impl Serialize,
-    storage_deposit: Option<NearToken>,
+    is_storage_deposit: bool,
     msg: Option<impl Serialize>,
 ) -> serde_json::Value {
     serde_json::json!({
         "receiver_id": receiver_id,
-        "storage_deposit": storage_deposit,
+        "is_storage_deposit": is_storage_deposit,
         "msg": msg,
         "min_gas": null,
     })
@@ -33,13 +33,13 @@ fn stake_message(
 
 fn stake_message_with_refund(
     receiver_id: impl Serialize,
-    storage_deposit: Option<NearToken>,
+    is_storage_deposit: bool,
     msg: Option<impl Serialize>,
     refund_message: Option<impl Serialize>,
 ) -> serde_json::Value {
     serde_json::json!({
         "receiver_id": receiver_id,
-        "storage_deposit": storage_deposit,
+        "is_storage_deposit": is_storage_deposit,
         "msg": msg,
         "min_gas": null,
         "refund_message": refund_message,

@@ -147,7 +147,7 @@ async fn test_storage_unregister_with_non_zero_balance_without_force_fails() -> 
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -180,7 +180,7 @@ async fn test_storage_unregister_with_non_zero_balance_and_force_burns_balance()
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 

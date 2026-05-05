@@ -18,6 +18,7 @@ mod stats;
 mod unstake;
 mod withdraw;
 
+const FT_STORAGE_DEPOSIT: NearToken = NearToken::from_micronear(1250);
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
 const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);

@@ -18,12 +18,12 @@ async fn stake_in_same_block(
     let alice_stake_tx = env.lst.stake(
         alice,
         STAKE_AMOUNT,
-        stake_message(alice.id(), None, None::<&str>),
+        stake_message(alice.id(), false, None::<&str>),
     );
     let bob_stake_tx = env.lst.stake(
         bob,
         bob_initial_stake,
-        stake_message(bob.id(), None, None::<&str>),
+        stake_message(bob.id(), false, None::<&str>),
     );
 
     let (alice_stake_result, bob_stake_result) = tokio::try_join!(alice_stake_tx, bob_stake_tx,)?;
@@ -49,7 +49,7 @@ async fn unstake_and_stake_in_same_block(
     let bob_stake_tx = env.lst.stake(
         bob,
         bob_second_stake,
-        stake_message(bob.id(), None, None::<&str>),
+        stake_message(bob.id(), false, None::<&str>),
     );
     let (alice_unstake_result, bob_stake_result) =
         tokio::try_join!(alice_unstake_tx, bob_stake_tx)?;
@@ -107,11 +107,11 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     env.lst
-        .stake(bob, bob_stake, stake_message(bob.id(), None, None::<&str>))
+        .stake(bob, bob_stake, stake_message(bob.id(), false, None::<&str>))
         .await?;
 
     // Locked balance grows by the sum of both stakes.
@@ -359,11 +359,11 @@ async fn test_user_fully_unstakes_while_other_user_remains_staked() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     env.lst
-        .stake(bob, bob_stake, stake_message(bob.id(), None, None::<&str>))
+        .stake(bob, bob_stake, stake_message(bob.id(), false, None::<&str>))
         .await?;
 
     let alice_unstake_message = unstake_message(alice.id(), &WithdrawTokens::Native);

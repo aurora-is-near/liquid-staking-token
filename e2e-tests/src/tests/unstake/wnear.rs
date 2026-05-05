@@ -57,7 +57,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), false, Some(alice.id())),
         )
         .await?;
 
@@ -70,7 +70,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents() -> TestResult {
     let unstake_message = unstake_message(
         env.intents.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some(alice.id().to_string()),
             memo: None,
             min_gas: None,
@@ -125,7 +125,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), false, Some(alice.id())),
         )
         .await?;
 
@@ -138,7 +138,7 @@ async fn test_unstake_by_withdrawing_lst_from_intents_without_storage_deposit() 
     let unstake_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            is_storage_deposit: true,
             msg: None,
             memo: None,
             min_gas: None,
@@ -199,7 +199,7 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -212,7 +212,7 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
     let unstake_message = unstake_message(
         env.intents.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some(alice.id().to_string()),
             memo: None,
             min_gas: None,
@@ -256,7 +256,7 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -271,7 +271,7 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     let unstake_message = unstake_message(
         env.intents.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some(alice.id().to_string()),
             memo: None,
             min_gas: None,
@@ -341,7 +341,7 @@ async fn test_reunstake_with_same_wnear_message_after_partial_refund() -> TestRe
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -350,7 +350,7 @@ async fn test_reunstake_with_same_wnear_message_after_partial_refund() -> TestRe
     let unstake_message = unstake_message(
         ft_receiver.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some(refund_once_message(first_refund_amount)),
             memo: None,
             min_gas: None,
@@ -422,7 +422,7 @@ async fn test_withdraw_wnear_with_storage_deposit_to_wnear_unregistered_receiver
         .stake(
             alice,
             STAKE_AMOUNT.saturating_add(FT_STORAGE_DEPOSIT),
-            stake_message(alice.id(), Some(FT_STORAGE_DEPOSIT), None::<&String>),
+            stake_message(alice.id(), true, None::<&String>),
         )
         .await?;
 
@@ -431,7 +431,7 @@ async fn test_withdraw_wnear_with_storage_deposit_to_wnear_unregistered_receiver
     let unstake_message = unstake_message(
         bob.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            is_storage_deposit: true,
             msg: None,
             memo: None,
             min_gas: None,
@@ -468,14 +468,14 @@ async fn test_withdraw_wnear_with_storage_deposit_exceeding_amount_fails() -> Te
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
     let unstake_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            is_storage_deposit: true,
             msg: None,
             memo: None,
             min_gas: None,
@@ -514,14 +514,14 @@ async fn test_withdraw_wnear_to_current_account_with_storage_deposit_fails() -> 
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
     let unstake_message = unstake_message(
         env.lst.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: Some(FT_STORAGE_DEPOSIT),
+            is_storage_deposit: true,
             msg: None,
             memo: None,
             min_gas: None,
@@ -555,7 +555,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_itself() -> TestR
         .stake(
             &env.lst.as_account(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&String>),
+            stake_message(env.lst.id(), false, None::<&String>),
         )
         .await?;
 
@@ -568,7 +568,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_itself() -> TestR
     let unstake_message = unstake_message(
         env.lst.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -614,7 +614,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_alice() -> TestRe
         .stake(
             &env.lst.as_account(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&String>),
+            stake_message(env.lst.id(), false, None::<&String>),
         )
         .await?;
 
@@ -627,7 +627,7 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_alice() -> TestRe
     let unstake_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -676,7 +676,7 @@ async fn test_stake_native_near_by_alice_and_unstake_wnear_to_bad_account() -> T
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -689,7 +689,7 @@ async fn test_stake_native_near_by_alice_and_unstake_wnear_to_bad_account() -> T
     let unstake_message = unstake_message(
         env.intents.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some("bad%$#account".to_string()),
             memo: None,
             min_gas: None,
@@ -737,7 +737,7 @@ async fn test_stake_native_near_by_alice_and_try_to_bloat_storage() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&String>),
+            stake_message(alice.id(), false, None::<&String>),
         )
         .await?;
 
@@ -757,7 +757,7 @@ async fn test_stake_native_near_by_alice_and_try_to_bloat_storage() -> TestResul
                     unstake_message(
                         alice.id(),
                         &WithdrawTokens::Wnear {
-                            storage_deposit: None,
+                            is_storage_deposit: false,
                             msg: None,
                             memo: Some(format!("unstake number: {i}")),
                             min_gas: None,
@@ -795,6 +795,140 @@ async fn test_stake_native_near_by_alice_and_try_to_bloat_storage() -> TestResul
 
     let lst_balance = env.lst.near_balance().await?;
     assert_eq!(lst_balance.locked.as_micronear(), INIT_LOCK.as_micronear());
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "Required a malicious contract receiver"]
+async fn test_stake_native_near_by_alice_and_try_withdraw_to_malicious_contract() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let malicious_contract = env.deploy_ft_receiver().await?;
+    let alice_init_balance = alice.near_balance().await?;
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), false, None::<&String>),
+        )
+        .await?;
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+
+    let lst_balance = env.lst.ft_balance_of(alice.id()).await?;
+    assert_eq!(lst_balance, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(
+        malicious_contract.id(),
+        &WithdrawTokens::Wnear {
+            is_storage_deposit: true,
+            msg: Some(r#"{"is_bomb":true}"#.to_string()),
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(env.lst.id()).await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &unstake_message).await?;
+
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_init_balance
+            .total
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(ONE_YOCTO) // ft_transfer_calls
+    );
+
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.wnear.ft_balance_of(malicious_contract.id()).await?,
+        STAKE_AMOUNT.saturating_sub(FT_STORAGE_DEPOSIT)
+    );
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(ONE_YOCTO));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_near_by_alice_and_try_withdraw_to_contract_without_storage_deposit()
+-> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let receiver = env.deploy_ft_receiver().await?;
+    let alice_init_balance = alice.near_balance().await?;
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), false, None::<&String>),
+        )
+        .await?;
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+
+    let lst_balance = env.lst.ft_balance_of(alice.id()).await?;
+    assert_eq!(lst_balance, STAKE_AMOUNT);
+
+    let unstake_message = unstake_message(
+        receiver.id(),
+        &WithdrawTokens::Wnear {
+            is_storage_deposit: false,
+            msg: Some("0".to_string()),
+            memo: None,
+            min_gas: None,
+        },
+    );
+
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &unstake_message)
+        .await?;
+
+    assert_eq!(env.lst.ft_balance_of(env.lst.id()).await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+
+    env.wait_unstake_cooldown().await?;
+
+    env.lst.withdraw(alice, &unstake_message).await?;
+
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_init_balance
+            .total
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(ONE_YOCTO) // ft_transfer_calls
+    );
+
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.wnear.ft_balance_of(receiver.id()).await?, ZERO_AMOUNT);
+
+    assert_eq!(
+        env.lst.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(INIT_LOCK)
+            .saturating_add(STAKE_AMOUNT) // native near tokens left on the contract
+    );
+
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(ONE_YOCTO));
 
     Ok(())
 }

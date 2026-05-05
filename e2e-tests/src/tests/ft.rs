@@ -23,7 +23,7 @@ async fn test_ft_transfer_from_alice_to_bob() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -55,7 +55,7 @@ async fn test_ft_transfer_to_unregistered_account_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -86,7 +86,7 @@ async fn test_ft_transfer_call_to_contract_consumes_tokens() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -120,7 +120,7 @@ async fn test_ft_transfer_call_to_contract_returns_full_refund() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -154,11 +154,11 @@ async fn test_ft_total_supply_reflects_stakes_transfers_and_burns() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     env.lst
-        .stake(bob, bob_stake, stake_message(bob.id(), None, None::<&str>))
+        .stake(bob, bob_stake, stake_message(bob.id(), false, None::<&str>))
         .await?;
 
     assert_eq!(
