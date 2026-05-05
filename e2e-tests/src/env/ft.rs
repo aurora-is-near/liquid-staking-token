@@ -3,6 +3,7 @@ use near_api::types::json::U128;
 use near_api::types::storage::StorageBalance;
 use near_api::types::transaction::result::ExecutionSuccess;
 use near_api::{AccountId, Data, NearToken, Tokens};
+use near_sdk::serde::Serialize;
 use near_sdk::serde_json::json;
 
 use crate::env::types::{Account, Contract};
@@ -27,14 +28,14 @@ pub trait FungibleToken {
         sender: &Account,
         receiver_id: &AccountId,
         amount: NearToken,
-        msg: impl ToString,
+        msg: impl Serialize,
     ) -> anyhow::Result<ExecutionSuccess>;
     async fn ft_on_transfer(
         &self,
         sender: &Account,
         sender_id: &AccountId,
         amount: NearToken,
-        msg: impl ToString,
+        msg: impl Serialize,
     ) -> anyhow::Result<ExecutionSuccess>;
     async fn ft_storage_deposit(
         &self,
@@ -122,7 +123,7 @@ impl FungibleToken for Contract {
         sender: &Account,
         receiver_id: &AccountId,
         amount: NearToken,
-        msg: impl ToString,
+        msg: impl Serialize,
     ) -> anyhow::Result<ExecutionSuccess> {
         self.inner
             .call_function(
@@ -130,7 +131,7 @@ impl FungibleToken for Contract {
                 json!({
                     "receiver_id": receiver_id,
                     "amount": amount,
-                    "msg": msg.to_string(),
+                    "msg": near_sdk::serde_json::to_string(&msg)?,
                 }),
             )
             .transaction()
@@ -148,7 +149,7 @@ impl FungibleToken for Contract {
         sender: &Account,
         sender_id: &AccountId,
         amount: NearToken,
-        msg: impl ToString,
+        msg: impl Serialize,
     ) -> anyhow::Result<ExecutionSuccess> {
         self.inner
             .call_function(
@@ -156,7 +157,7 @@ impl FungibleToken for Contract {
                 json!({
                     "sender_id": sender_id,
                     "amount": amount,
-                    "msg": msg.to_string(),
+                    "msg": near_sdk::serde_json::to_string(&msg)?,
                 }),
             )
             .transaction()

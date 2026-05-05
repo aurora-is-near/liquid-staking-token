@@ -1,6 +1,8 @@
 use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
-use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, PublicKey, env, near, require};
+use near_sdk::{
+    AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, PublicKey, env, near, require,
+};
 use num_traits::ToPrimitive;
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
@@ -8,7 +10,7 @@ use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 pub use stake::StakeMessage;
 pub use stats::PoolStatistics;
 pub use unstake::{UnstakeMessage, UnstakeTrigger, WithdrawTokens};
-pub use withdraw::UserDistribution;
+pub use withdraw::requests::{Tranche, WithdrawalRequest, WithdrawalRequests};
 
 mod admin;
 mod stake;
@@ -92,6 +94,64 @@ impl LiquidStakingToken {
     /// account's NEAR balance.
     pub const fn get_total_balance(&self) -> NearToken {
         self.statistics.latest_total_balance
+    }
+
+    /// Returns every [`Tranche`] currently queued under `hash`, or `None`
+    /// if the hash has no entry. Includes both queued (unlocked) tranches
+    /// and the in-flight (locked) tranche, if one exists; the lock state is
+    /// not exposed through this view. `hash` must be the Keccak-256 of
+    /// the borsh-serialized `UnstakeMessage` originally submitted.
+    pub fn get_withdrawal_request_tranches(&self, hash: CryptoHash) -> Option<Vec<Tranche>> {
+        self.withdrawal_requests
+            .get_withdrawal_request_tranches(&hash)
+    }
+
+    /// Paginated dump of every queue entry, intended for indexers and admin
+    /// dashboards. Returns `[skip, skip + min(limit, MAX_LIMIT))` of the
+    /// underlying `IterableMap`'s iteration order; `limit` is silently
+    /// clamped to `MAX_LIMIT` (currently 100). Pair with
+    /// [`Self::get_withdrawal_requests_count`] for stable totals. Iteration
+    /// order is **not stable across removals** (the backing storage uses
+    /// swap-remove on its key vector), so a paginating client mid-traversal
+    /// may see entries skip or repeat if the queue is mutated.
+    pub fn get_withdrawal_requests(&self, skip: usize, limit: usize) -> Vec<WithdrawalRequest> {
+        self.withdrawal_requests
+            .get_withdrawal_requests(skip, limit)
+    }
+
+    /// Paginated list of `hash`es that are currently ready to be
+    /// withdrawn — i.e. each has at least one **unlocked, matured** tranche
+    /// under it. Intended as the input feed for indexers and frontends that
+    /// want to surface "ready to claim" entries to users.
+    ///
+    /// Hashes whose only matured tranche is already locked (i.e. a
+    /// withdrawal is mid-flight for them) are excluded — calling
+    /// `withdraw_by_hash` on those would panic with "Unstake request is
+    /// already in progress". Hashes with only immature tranches are also
+    /// excluded.
+    ///
+    /// `skip` and `limit` apply to the **filtered** stream; `limit` is
+    /// silently clamped to `MAX_LIMIT` (currently 100). Iteration order is
+    /// the underlying [`IterableMap`]'s, which is **not stable across
+    /// removals**: between paginated calls, completed withdrawals can shift
+    /// or remove later entries, so a client traversing with successive
+    /// `(skip, limit)` calls may see entries skip or repeat.
+    ///
+    /// [`IterableMap`]: near_sdk::store::IterableMap
+    pub fn get_hashes_available_for_withdrawal(
+        &self,
+        skip: usize,
+        limit: usize,
+    ) -> Vec<CryptoHash> {
+        self.withdrawal_requests
+            .get_hashes_available_for_withdrawal(skip, limit)
+    }
+
+    /// Returns the number of distinct `hash` entries currently in the
+    /// queue. Each entry is one `(hash, tranches)` pair regardless of
+    /// how many tranches sit under that hash.
+    pub fn get_withdrawal_requests_count(&self) -> u32 {
+        self.withdrawal_requests.len()
     }
 
     /// Publicly callable rewards sync. Reads `account_locked_balance +

@@ -53,7 +53,7 @@ impl LiquidStakingToken {
     pub fn stake(&mut self, args: StakeMessage) -> Promise {
         let sender_id = env::predecessor_account_id();
         let deposit_amount = env::attached_deposit();
-        let is_contract_staking = env::predecessor_account_id() == env::current_account_id();
+        let is_contract_staking = sender_id == env::current_account_id();
 
         // We don't need to subtract anything when calling from the contract itself.
         self.sync_rewards_internal(Some(if is_contract_staking {
@@ -200,7 +200,7 @@ impl LiquidStakingToken {
             args.receiver_id
         );
 
-        self.handle_unstaking(refund, &unstake_msg, UnstakeTrigger::RefundByContract)
+        self.handle_unstaking(refund, unstake_msg, UnstakeTrigger::RefundByContract)
             .into()
     }
 }

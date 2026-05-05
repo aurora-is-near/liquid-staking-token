@@ -27,12 +27,8 @@ impl FungibleTokenReceiver for LiquidStakingToken {
                 .unwrap_or_else(|_| env::panic_str("Invalid format of the UnstakeMessage"));
             let unstake_amount = NearToken::from_yoctonear(amount.0);
 
-            self.handle_unstaking(
-                unstake_amount,
-                &unstake_message,
-                UnstakeTrigger::UserRequest,
-            )
-            .into()
+            self.handle_unstaking(unstake_amount, unstake_message, UnstakeTrigger::UserRequest)
+                .into()
         } else {
             env::panic_str("Invalid token account ID");
         }

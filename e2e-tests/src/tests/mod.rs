@@ -1,5 +1,5 @@
-use liquid_staking_token::pool::WithdrawTokens;
-use near_api::NearToken;
+use liquid_staking_token::pool::{UnstakeMessage, WithdrawTokens};
+use near_api::{AccountId, NearToken};
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json;
 
@@ -46,12 +46,9 @@ fn stake_message_with_refund(
     })
 }
 
-fn unstake_message(
-    receiver_id: impl Serialize,
-    withdraw_tokens: &WithdrawTokens,
-) -> serde_json::Value {
-    serde_json::json!({
-        "receiver_id": receiver_id,
-        "withdraw_tokens": withdraw_tokens,
-    })
+fn unstake_message(receiver_id: &AccountId, withdraw_tokens: &WithdrawTokens) -> UnstakeMessage {
+    UnstakeMessage {
+        receiver_id: receiver_id.clone(),
+        withdraw_tokens: withdraw_tokens.clone(),
+    }
 }

@@ -35,9 +35,12 @@ This liquid staking solution allows NEAR token holders to:
 3. **Reward syncing**: Anyone may call `ping` (or it runs implicitly on each stake/unstake) to fold the
    validator's accrued rewards into the contract's tracked balance, lifting the LST/NEAR exchange rate
    and minting the configured protocol fee as LST to the treasury
-4. **Unstaking**: Users burn LST tokens to initiate unstaking, creating a withdrawal queue entry
-5. **Cooldown period**: After 4 epochs (~2 days), users can withdraw their NEAR
-6. **Withdrawal**: Users claim their NEAR (native or wNEAR) after the cooldown completes
+4. **Unstaking**: Users burn LST tokens to initiate unstaking. Each unstake is recorded as an independent
+   tranche keyed by the hash of the `UnstakeMessage`, with its own cooldown — re-unstaking with the same
+   message never shifts the cooldown of earlier tranches.
+5. **Cooldown period**: Each tranche matures 4 epochs (~2 days) after the unstake that created it
+6. **Withdrawal**: A single `withdraw` call claims **all matured tranches** under that message hash in
+   one delivery; any tranches still in cooldown stay queued for a future call
 
 The contract manages the staking lifecycle, handles storage deposits, and supports both simple transfers and complex
 cross-contract calls through standardized message formats.
@@ -228,8 +231,9 @@ near contract call-function as-transaction <CONTRACT_ID> ft_transfer_call \
   network-config mainnet
 ```
 
-On success the LST tokens are burned and an unstake queue entry is recorded keyed by the hash of the `UnstakeMessage`.
-The NEAR is released only after the **4-epoch cooldown**.
+On success the LST tokens are burned and an **independent withdrawal tranche** is recorded under the hash of the
+`UnstakeMessage`. The NEAR for that tranche is released only after the **4-epoch cooldown** measured from this
+specific unstake.
 
 ---
 
@@ -284,36 +288,42 @@ The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
 >
-> **Re-unstaking with the same `UnstakeMessage` adds to the existing queue entry and resets its cooldown to the
-> current epoch.** Any prior pending claim under that hash therefore has to wait the full 4-epoch cooldown again
-> from the new unstake — the new and old portions can only be withdrawn together. To preserve a previous unstake's
-> cooldown, use a different `UnstakeMessage` (e.g. a different `memo` or `min_gas`, both of which are part of the
-> hash).
+> **Re-unstaking with the same `UnstakeMessage` is safe and does *not* reset any prior cooldown.** Each unstake
+> appends an independent tranche under the same hash with its own `unstake_epoch`; an earlier tranche's cooldown
+> is never shifted by a later unstake. When you call `withdraw`, the contract collapses **all currently-matured
+> tranches** under that hash into a single delivery, while any tranches still in cooldown stay queued for a
+> later `withdraw`. The "all matured at once" semantics mean one `withdraw` call always claims everything that
+> is currently claimable under that message hash.
+>
+> Bloat protection: same-epoch unstakes fold into one tranche, and matured tranches collapse on every successful
+> unstake. A user spamming `unstake` (e.g. 1 yoctoNEAR each call) cannot grow the per-hash storage beyond a
+> small bound.
 
 #### Partial delivery and retries (wNEAR with `msg`)
 
 When wNEAR is delivered via `ft_transfer_call` (i.e. `msg` is set), the receiver may consume only part of the amount.
 The unconsumed wNEAR is refunded back to the LST contract by the wNEAR contract's `ft_resolve_transfer`, and the
-queue entry is updated so the user can retry `withdraw` for the remainder.
+in-flight tranche is updated so the user can retry `withdraw` for the remainder.
 
-The contract tracks the residual precisely: it records how much of the entry's claim is **already held as wNEAR** at
-the contract (refunded back from a prior partial delivery) versus how much is **still in NEAR form** on the contract
-account. The next `withdraw` only `near_deposit`s the still-in-NEAR portion before sending out the full claim — the
-residual wNEAR rides along untouched.
+The contract tracks the residual precisely: it records how much of the in-flight tranche's claim is **already held
+as wNEAR** at the contract (refunded back from a prior partial delivery) versus how much is **still in NEAR form**
+on the contract account. The next `withdraw` only `near_deposit`s the still-in-NEAR portion before sending out the
+full claim — the residual wNEAR rides along untouched.
 
 A few consequences worth knowing:
 
 - **`near_deposit` is skipped only for the residual portion.** A pure retry (no re-unstake in between) sends just the
-  residual wNEAR; no fresh NEAR is converted. If you re-unstake into the same hash between attempts, the next
-  `withdraw` `near_deposit`s only the *new* portion and the residual is delivered alongside it.
-- **`storage_deposit` is paid at most once per queue entry.** The first attempt that requests one registers the
+  residual wNEAR; no fresh NEAR is converted.
+- **`storage_deposit` is paid at most once per in-flight tranche.** The first attempt that requests one registers the
   receiver on the wNEAR contract; subsequent retries skip the registration step regardless of what `storage_deposit`
   the `UnstakeMessage` carries.
-- **Re-unstaking into a partial entry resets the cooldown.** Per the note above, re-using the same `UnstakeMessage`
-  adds to the entry's claim *and* shifts its `unstake_epoch` to the current epoch. The residual you could have
-  withdrawn now has to wait another 4 epochs alongside the new portion.
-- **Total failure of `ft_on_transfer` (panic, no `ft_resolve_transfer` refund) leaves the queue untouched.** The user
-  may simply call `withdraw` again — no cooldown reset, no residual recorded.
+- **A partial-refund residual remains immediately reclaimable.** The leftover stays in the queue as an
+  already-matured tranche and is picked up by the next `withdraw` along with any other matured tranches under the
+  same hash — no fresh 4-epoch wait. Re-unstaking into the same hash in the meantime simply appends a new
+  independent tranche; the residual is unaffected.
+- **Total failure of `ft_on_transfer` (panic, no `ft_resolve_transfer` refund) leaves the in-flight tranche
+  untouched.** The terminal callback releases the lock and the user may simply call `withdraw` again — no cooldown
+  reset, no residual recorded.
 
 ---
 
@@ -338,17 +348,20 @@ near contract call-function as-transaction <CONTRACT_ID> withdraw \
 
 The contract:
 
-1. Looks up the unstake queue entry by the hash of `args`.
-2. Checks that at least 4 epochs have elapsed.
-3. Transfers the NEAR (or wNEAR) to `receiver_id`.
-4. Removes the entry from the queue.
+1. Looks up the queued tranches by the hash of `args`.
+2. Collapses every tranche whose 4-epoch cooldown has elapsed into a single in-flight delivery, leaving any
+   tranches still in cooldown queued for later.
+3. Transfers the summed NEAR (or wNEAR) to `receiver_id`.
+4. Drops the in-flight tranche on full success; partially-delivered wNEAR leaves a residual tranche behind that
+   can be reclaimed by the next `withdraw`.
 
-If called too early, the transaction panics with `"The cooldown hasn't passed yet"`.
+If no tranche has matured, the call panics with
+`"There are no available tokens for withdrawal for this message hash"`.
 
-A given queue entry can have **at most one `withdraw` call in flight at a time**. Concurrent `withdraw` calls for the
-same `UnstakeMessage` hash — both native and wNEAR variants — are rejected with `"The withdrawal for this hash is
-already in progress"`. The lock is released by the chain's terminal callback, so callers should wait for the prior
-call to finish before retrying.
+A given message hash can have **at most one `withdraw` call in flight at a time**. Concurrent `withdraw` calls for
+the same `UnstakeMessage` hash — both native and wNEAR variants — are rejected with `"Unstake request is already in
+progress"`. The in-flight tranche is locked while the FT chain is pending and unlocked by the chain's terminal
+callback, so callers should wait for the prior call to finish before retrying.
 
 ---
 
@@ -386,29 +399,34 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
 near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
   json-args '{ "fee_bps": 1000 }' \
   prepaid-gas '20 Tgas' \
-  attached-deposit '0 NEAR' \
+  attached-deposit '1 yoctoNEAR' \
   sign-as admin.near \
   network-config mainnet
 ```
 
 - `fee_bps` is in basis points (1 bp = 0.01%). `1000` = 10%.
 - Capped at `2_000` (20%); higher values panic.
-- Only accounts with the `Admin` role may call this method.
+- Only accounts with the `Admin` role may call this method. Requires 1 yoctoNEAR attached for full-access-key
+  confirmation.
 - The fee applies to *future* reward syncs only. Past syncs are not retroactively re-fee'd.
 
 ### View methods
 
-| Method                             | Returns                                                | Notes                                                           |
-|------------------------------------|--------------------------------------------------------|-----------------------------------------------------------------|
-| `get_exchange_rate`                | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync. |
-| `get_reward_fee_fraction`          | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                              |
-| `get_total_staked_balance`         | `NearToken`                                            | Tracked NEAR backing the LST supply.                            |
-| `get_total_pending_withdrawals`    | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                      |
-| `get_total_balance`                | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.              |
-| `get_number_of_accounts`           | `u64`                                                  | Number of LST holders.                                          |
-| `get_owner_id` / `get_treasury_id` | `AccountId`                                            | Configured roles.                                               |
-| `get_staking_key`                  | `PublicKey`                                            | Validator key the contract delegates to.                        |
-| `get_version`                      | `&'static str`                                         | Crate version baked in at build time.                           |
+| Method                                                  | Returns                                                | Notes                                                                                                                                                                                |
+|---------------------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `get_exchange_rate`                                     | `{ numerator (str), denominator (str) }` (yocto units) | Effective LST→NEAR ratio. Equals `1/1` before any rewards sync.                                                                                                                      |
+| `get_reward_fee_fraction`                               | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                                                                                                                                                   |
+| `get_total_staked_balance`                              | `NearToken`                                            | Tracked NEAR backing the LST supply.                                                                                                                                                 |
+| `get_total_pending_withdrawals`                         | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                                                                                                                                           |
+| `get_total_balance`                                     | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.                                                                                                                                   |
+| `get_number_of_accounts`                                | `u64`                                                  | Number of LST holders.                                                                                                                                                               |
+| `get_owner_id` / `get_treasury_id`                      | `AccountId`                                            | Configured roles.                                                                                                                                                                    |
+| `get_staking_key`                                       | `PublicKey`                                            | Validator key the contract delegates to.                                                                                                                                             |
+| `get_version`                                           | `&'static str`                                         | Crate version baked in at build time.                                                                                                                                                |
+| `get_withdrawal_request_tranches({ hash })`             | `Option<Vec<Tranche>>`                                 | Every tranche queued under `hash` (locked + unlocked, lock state hidden), or `None` if the hash has no entry. Use to display a single user's pending withdrawals.                    |
+| `get_withdrawal_requests({ skip, limit })`              | `Vec<WithdrawalRequest>`                               | Paginated dump of every queue entry: `{ hash (base58), tranches }`. `limit` is silently clamped to 100. Iteration order is **not stable across removals**.                           |
+| `get_hashes_available_for_withdrawal({ skip, limit })`  | `Vec<CryptoHash>`                                      | Paginated list of hashes with at least one **unlocked + matured** tranche — i.e. the set on which the next `withdraw` would succeed right now. `limit` is clamped to 100.            |
+| `get_withdrawal_requests_count`                         | `u32`                                                  | Number of distinct queue entries. Pair with `get_withdrawal_requests` for stable totals.                                                                                             |
 
 ---
 
@@ -430,8 +448,9 @@ staging, deploying, and upgrade-duration management are all gated on the `Admin`
 
 ## Admin operations
 
-All methods below are gated on the `Admin` role, granted to `owner_id` at init.
-`set_protocol_fee_bps` is documented under [Rewards and protocol fee](#set_protocol_fee_bps-admin-only).
+All methods below are gated on the `Admin` role, granted to `owner_id` at init, and require 1 yoctoNEAR attached
+for full-access-key confirmation. `set_protocol_fee_bps` is documented under
+[Rewards and protocol fee](#set_protocol_fee_bps-admin-only).
 
 ### `set_validator_public_key` — change the staking validator
 
@@ -439,13 +458,14 @@ All methods below are gated on the `Admin` role, granted to `owner_id` at init.
 near contract call-function as-transaction <CONTRACT_ID> set_validator_public_key \
   json-args '{ "validator_public_key": "ed25519:<NEW_BASE58_KEY>" }' \
   prepaid-gas '20 Tgas' \
-  attached-deposit '0 NEAR' \
+  attached-deposit '1 yoctoNEAR' \
   sign-as admin.near \
   network-config mainnet
 ```
 
-- Replaces the in-state validator public key. The contract's currently-locked NEAR remains bonded to the *old*
-  validator until a stake action fires with the new key.
+- Replaces the in-state validator public key. Requires 1 yoctoNEAR attached for full-access-key confirmation. The
+  contract's currently-locked NEAR remains bonded to the *old* validator until a stake action fires with the new
+  key.
 - Migration is propagated by the next stake-bearing operation: `stake`, `unstake`, or `ping` (after rewards are
   detected). NEAR's runtime then schedules unbonding from the old validator over the standard 4-epoch period before
   bonding to the new one.
@@ -470,6 +490,25 @@ near contract call-function as-transaction <CONTRACT_ID> add_full_access_key \
 - Intended as a break-glass mechanism, primarily to recover from a dead validator that prevents `ping` from firing a
   fresh stake. Use sparingly: there is no on-chain `delete_key` method, so a granted key can only be removed via a
   contract upgrade.
+
+### `force_release_lock` — clear a stuck in-flight withdrawal
+
+```bash
+near contract call-function as-transaction <CONTRACT_ID> force_release_lock \
+  json-args '{ "hash": [/* 32 bytes */] }' \
+  prepaid-gas '20 Tgas' \
+  attached-deposit '1 yoctoNEAR' \
+  sign-as admin.near \
+  network-config mainnet
+```
+
+- Unlocks the in-flight (locked) tranche queued under `hash`, leaving any other tranches untouched.
+- Returns `true` if a locked tranche was found and released, `false` otherwise.
+- Intended as a break-glass for the rare case where the tail `remove_lock` callback of a `withdraw` chain fails
+  to fire (gas exhaustion in a deeply nested receipt, etc.) and the in-flight tranche stays locked, blocking
+  every subsequent `withdraw` for that hash with `"Unstake request is already in progress"`. After release, the
+  user can retry `withdraw` normally.
+- Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ---
 

@@ -1,6 +1,5 @@
-use liquid_staking_token::pool::WithdrawTokens;
+use liquid_staking_token::pool::{UnstakeMessage, WithdrawTokens};
 use near_api::NearToken;
-use near_sdk::serde_json::Value;
 use testresult::TestResult;
 
 use crate::env::ft::FungibleToken;
@@ -41,7 +40,7 @@ async fn unstake_and_stake_in_same_block(
     env: &Env,
     alice: &Account,
     bob: &Account,
-    alice_unstake_message: &Value,
+    alice_unstake_message: &UnstakeMessage,
     bob_second_stake: NearToken,
 ) -> TestResult {
     let alice_unstake_tx =
@@ -67,8 +66,8 @@ async fn partial_unstake_in_same_block(
     env: &Env,
     alice: &Account,
     bob: &Account,
-    alice_unstake_message: &Value,
-    bob_unstake_message: &Value,
+    alice_unstake_message: &UnstakeMessage,
+    bob_unstake_message: &UnstakeMessage,
     alice_unstake_amount: NearToken,
     bob_unstake_amount: NearToken,
 ) -> TestResult {
