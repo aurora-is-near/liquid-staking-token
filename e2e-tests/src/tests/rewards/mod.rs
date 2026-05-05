@@ -27,7 +27,7 @@ async fn test_getting_rewards_for_two_epochs() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -76,7 +76,7 @@ async fn test_getting_rewards_for_two_epochs_with_fee() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 

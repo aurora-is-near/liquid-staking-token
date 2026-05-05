@@ -29,7 +29,7 @@ async fn test_stake_with_native_near_and_get_on_intents() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), false, Some(alice.id())),
         )
         .await?;
 
@@ -68,7 +68,7 @@ async fn test_stake_with_native_near_and_attempt_to_send_on_intents_with_bad_acc
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some("a2933a$$%$1!@!#@!@")), // Triggers a panic in `ft_on_transfer` on intents.
+            stake_message(env.intents.id(), false, Some("a2933a$$%$1!@!#@!@")), // Triggers a panic in `ft_on_transfer` on intents.
         )
         .await?;
 
@@ -113,7 +113,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.intents.id(),
-                None,
+                false,
                 Some("a2933a$$%$1!@!#@!@"),
                 Some(&refund_message),
             ), // Triggers a panic in `ft_on_transfer` on intents.
@@ -152,7 +152,7 @@ async fn test_stake_with_native_near_and_partial_nep141_refund_with_refund_messa
             STAKE_AMOUNT,
             stake_message_with_refund(
                 ft_receiver.id(),
-                None,
+                false,
                 Some(partial_refund_message(PARTIAL_REFUND_AMOUNT)),
                 Some(&refund_message),
             ),
@@ -215,7 +215,7 @@ async fn test_stake_with_native_near_and_partial_nep141_refund_without_refund_me
             STAKE_AMOUNT,
             stake_message(
                 ft_receiver.id(),
-                None,
+                false,
                 Some(partial_refund_message(PARTIAL_REFUND_AMOUNT)),
             ),
         )
@@ -254,7 +254,7 @@ async fn test_stake_with_native_near_and_get_on_intents_bob() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(bob.id())),
+            stake_message(env.intents.id(), false, Some(bob.id())),
         )
         .await?;
 
@@ -295,7 +295,7 @@ async fn test_stake_with_native_near_and_get_on_nep141() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -333,7 +333,7 @@ async fn test_stake_with_native_near_and_get_on_nep141_to_bob() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(bob.id(), None, None::<&str>),
+            stake_message(bob.id(), false, None::<&str>),
         )
         .await?;
 
@@ -374,7 +374,7 @@ async fn test_stake_with_native_near_and_get_on_nep141_without_registration() ->
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await;
     assert!(result.is_err());
@@ -404,7 +404,7 @@ async fn test_stake_with_native_near_and_get_on_nep141_with_registration() -> Te
         .stake(
             alice,
             STAKE_AMOUNT.saturating_add(FT_STORAGE_DEPOSIT),
-            stake_message(alice.id(), Some(FT_STORAGE_DEPOSIT), None::<&str>),
+            stake_message(alice.id(), true, None::<&str>),
         )
         .await?;
 
@@ -441,7 +441,7 @@ async fn test_stake_with_zero_native_near_fails() -> TestResult {
         .stake(
             alice,
             ZERO_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await;
 
@@ -466,7 +466,7 @@ async fn test_stake_with_only_storage_deposit_fails() -> TestResult {
         .stake(
             alice,
             FT_STORAGE_DEPOSIT,
-            stake_message(alice.id(), Some(FT_STORAGE_DEPOSIT), None::<&str>),
+            stake_message(alice.id(), true, None::<&str>),
         )
         .await;
 
@@ -476,36 +476,6 @@ async fn test_stake_with_only_storage_deposit_fails() -> TestResult {
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
     assert_eq!(alice_native_balance_before, alice.near_balance().await?);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stake_with_storage_deposit_exceeding_amount_fails() -> TestResult {
-    let env = Env::builder().build().await?;
-    let alice = env.alice();
-
-    // Attach 1 NEAR but request a 2 NEAR storage deposit — contract must panic.
-    let deposit = NearToken::from_near(1);
-    let oversized_storage_deposit = NearToken::from_near(2);
-
-    let result = env
-        .lst
-        .stake(
-            alice,
-            deposit,
-            stake_message(alice.id(), Some(oversized_storage_deposit), None::<&str>),
-        )
-        .await;
-
-    assert!(
-        result.is_err(),
-        "Expected stake to fail when storage_deposit exceeds the attached amount"
-    );
-
-    // No tokens minted, locked balance unchanged.
-    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
-    assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
 
     Ok(())
 }
@@ -521,7 +491,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message_with_refund(alice.id(), None, Some(bob.id()), Some(&refund_message)),
+            stake_message_with_refund(alice.id(), false, Some(bob.id()), Some(&refund_message)),
         )
         .await?;
 
@@ -561,37 +531,6 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
 }
 
 #[tokio::test]
-async fn test_stake_native_with_storage_deposit_less_than_needed() -> TestResult {
-    let env = Env::builder().without_storage_deposit().build().await?;
-    let alice = env.alice();
-    let alice_balance_before = alice.near_balance().await?;
-    let lst_balance_before = env.lst.near_balance().await?;
-
-    // Now stake should fail because of the storage_deposit is less than needed.
-    let result = env
-        .lst
-        .stake(
-            alice,
-            STAKE_AMOUNT,
-            stake_message(
-                alice.id(),
-                Some(NearToken::from_micronear(1200)), // should more than 1250 microNEAR
-                None::<&str>,
-            ),
-        )
-        .await;
-    assert!(result.is_err());
-
-    env.lst.ping().await?;
-
-    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
-    assert_eq!(env.lst.near_balance().await?, lst_balance_before);
-    assert_eq!(alice.near_balance().await?, alice_balance_before);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult {
     let env = Env::builder().build().await?;
     let alice = env.alice();
@@ -610,7 +549,7 @@ async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await;
     assert!(result.is_err());
@@ -638,7 +577,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_contract_with_refund() -> T
             STAKE_AMOUNT,
             stake_message_with_refund(
                 lst_receiver.id(),
-                None,
+                false,
                 Some(HALF_OF_STAKE),
                 Some(&refund_message),
             ),
@@ -683,7 +622,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&str>),
+            stake_message(env.lst.id(), false, None::<&str>),
         )
         .await?;
 
@@ -713,7 +652,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, Some("random message")),
+            stake_message(env.lst.id(), false, Some("random message")),
         )
         .await?;
 
@@ -750,7 +689,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.lst.id(),
-                None,
+                false,
                 Some("random message"),
                 Some(&refund_message),
             ),
@@ -784,7 +723,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
     let refund_message = unstake_message(
         env.lst.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -792,7 +731,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
     );
     let stake_message = stake_message_with_refund(
         env.lst.id(),
-        None,
+        false,
         Some("random message"),
         Some(&refund_message),
     );
@@ -831,7 +770,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
     let refund_message = unstake_message(
         env.lst.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -839,7 +778,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_lst_contract_with_random_ms
     );
     let stake_message = stake_message_with_refund(
         env.lst.id(),
-        None,
+        false,
         Some("random message"),
         Some(&refund_message),
     );
@@ -885,7 +824,7 @@ async fn test_stake_native_and_sending_lst_tokens_to_contract_with_refund_and_un
             STAKE_AMOUNT,
             stake_message_with_refund(
                 lst_receiver.id(),
-                None,
+                false,
                 Some(HALF_OF_STAKE),
                 Some(&refund_message),
             ),

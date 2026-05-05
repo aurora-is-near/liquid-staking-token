@@ -20,7 +20,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
     let refund_message = unstake_message(
         env.intents.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some(bob.id().to_string()),
             memo: None,
             min_gas: None,
@@ -33,7 +33,7 @@ async fn test_stake_with_native_near_and_to_send_on_intents_with_bad_account_wit
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.intents.id(),
-                None,
+                false,
                 Some("a2933a$$%$1!@!#@!@"),
                 Some(&refund_message),
             ), // Triggers a panic in `ft_on_transfer` on intents.
@@ -80,7 +80,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     let refund_message = unstake_message(
         env.intents.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: Some(alice.id().to_string()),
             memo: None,
             min_gas: None,
@@ -91,7 +91,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message_with_refund(alice.id(), None, Some(bob.id()), Some(&refund_message)),
+            stake_message_with_refund(alice.id(), false, Some(bob.id()), Some(&refund_message)),
         )
         .await?;
 

@@ -42,12 +42,16 @@ const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);
 pub enum WithdrawTokens {
     Native,
     Wnear {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        storage_deposit: Option<NearToken>,
+        /// Flag indicating whether a storage deposit should be made for the wNEAR
+        #[serde(default)]
+        is_storage_deposit: bool,
+        /// Message that will be passed to the `ft_transfer_call` callback.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         msg: Option<String>,
+        /// Memo that will be passed to the `ft_transfer_call` callback.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         memo: Option<String>,
+        /// Minimum amount of gas that can be used for the `ft_on_transfer` callback.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         min_gas: Option<Gas>,
     },

@@ -92,7 +92,7 @@ async fn test_pause_contract_stake_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await;
     assert_transaction_failure_contains(result, PAUSED_ERROR);
@@ -112,7 +112,7 @@ async fn test_pause_contract_withdraw_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -148,7 +148,7 @@ async fn test_unpause_contract_operations_resume() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -171,7 +171,7 @@ async fn test_unpause_contract_operations_resume() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await;
     assert_transaction_failure_contains(stake_while_paused, PAUSED_ERROR);
@@ -195,7 +195,7 @@ async fn test_unpause_contract_operations_resume() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -230,7 +230,7 @@ async fn test_non_owner_pause_contract_fails() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 

@@ -33,7 +33,7 @@ async fn test_stake_with_wnear_and_get_on_intents() -> TestResult {
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(env.intents.id(), None, Some(alice.id()));
+    let message = stake_message(env.intents.id(), false, Some(alice.id()));
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
@@ -70,7 +70,7 @@ async fn test_stake_with_wnear_and_get_on_nep141() -> TestResult {
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(alice.id(), None, None::<&AccountId>);
+    let message = stake_message(alice.id(), false, None::<&AccountId>);
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
@@ -110,7 +110,7 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_bob() -> TestResult 
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(env.intents.id(), None, Some(bob.id()));
+    let message = stake_message(env.intents.id(), false, Some(bob.id()));
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
@@ -151,7 +151,7 @@ async fn test_stake_with_wnear_and_get_on_nep141_to_bob() -> TestResult {
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(bob.id(), None, None::<&AccountId>);
+    let message = stake_message(bob.id(), false, None::<&AccountId>);
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
@@ -196,7 +196,7 @@ async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> Tes
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(&unregistered, None, None::<&AccountId>);
+    let message = stake_message(&unregistered, false, None::<&AccountId>);
 
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
@@ -243,7 +243,7 @@ async fn test_stake_with_wrapped_near_and_get_on_intents_to_unregistered() -> Te
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(env.intents.id(), None, Some(alice.id()));
+    let message = stake_message(env.intents.id(), false, Some(alice.id()));
 
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
@@ -314,7 +314,7 @@ async fn test_stake_with_wnear_and_to_send_on_intents_with_bad_account_with_wnea
     let refund_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -328,7 +328,7 @@ async fn test_stake_with_wnear_and_to_send_on_intents_with_bad_account_with_wnea
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.intents.id(),
-                None,
+                false,
                 Some("a2933a$$%$1!@!#@!@"),
                 Some(&refund_message),
             ),
@@ -390,7 +390,7 @@ async fn test_stake_with_wnear_and_ft_on_transfer_panic_with_native_refund() -> 
             STAKE_AMOUNT,
             stake_message_with_refund(
                 ft_receiver.id(),
-                None,
+                false,
                 Some("invalid refund amount"),
                 Some(&refund_message),
             ),
@@ -442,7 +442,7 @@ async fn test_stake_with_wnear_and_partial_nep141_refund_with_refund_message() -
     let refund_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -460,7 +460,7 @@ async fn test_stake_with_wnear_and_partial_nep141_refund_with_refund_message() -
             STAKE_AMOUNT,
             stake_message_with_refund(
                 ft_receiver.id(),
-                None,
+                false,
                 Some(partial_refund_message(PARTIAL_REFUND_AMOUNT)),
                 Some(&refund_message),
             ),
@@ -533,7 +533,7 @@ async fn test_stake_with_non_wnear_non_lst_token_fails() -> TestResult {
             &other_ft.as_account(),
             alice.id(),
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&AccountId>),
+            stake_message(alice.id(), false, None::<&AccountId>),
         )
         .await;
 
@@ -555,7 +555,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     let refund_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -566,7 +566,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message_with_refund(alice.id(), None, Some(bob.id()), Some(&refund_message)),
+            stake_message_with_refund(alice.id(), false, Some(bob.id()), Some(&refund_message)),
         )
         .await?;
 
@@ -626,7 +626,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_contract_with_refund() -> Te
             STAKE_AMOUNT,
             stake_message_with_refund(
                 lst_receiver.id(),
-                None,
+                false,
                 Some(HALF_OF_STAKE),
                 Some(&refund_message),
             ),
@@ -674,7 +674,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_contract_with_refund_and_uns
     let refund_message = unstake_message(
         alice.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -695,7 +695,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_contract_with_refund_and_uns
             STAKE_AMOUNT,
             stake_message_with_refund(
                 lst_receiver.id(),
-                None,
+                false,
                 Some(HALF_OF_STAKE),
                 Some(&refund_message),
             ),
@@ -764,7 +764,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract() -> TestResult
             alice,
             env.lst.id(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&str>),
+            stake_message(env.lst.id(), false, None::<&str>),
         )
         .await?;
 
@@ -807,7 +807,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
             alice,
             env.lst.id(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, Some("random message")),
+            stake_message(env.lst.id(), false, Some("random message")),
         )
         .await?;
 
@@ -857,7 +857,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.lst.id(),
-                None,
+                false,
                 Some("random message"),
                 Some(&refund_message),
             ),
@@ -905,7 +905,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
     let refund_message = unstake_message(
         env.lst.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -913,7 +913,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
     );
     let stake_message = stake_message_with_refund(
         env.lst.id(),
-        None,
+        false,
         Some("random message"),
         Some(&refund_message),
     );
@@ -971,7 +971,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
     let refund_message = unstake_message(
         env.lst.id(),
         &WithdrawTokens::Wnear {
-            storage_deposit: None,
+            is_storage_deposit: false,
             msg: None,
             memo: None,
             min_gas: None,
@@ -979,7 +979,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
     );
     let stake_message = stake_message_with_refund(
         env.lst.id(),
-        None,
+        false,
         Some("random message"),
         Some(&refund_message),
     );

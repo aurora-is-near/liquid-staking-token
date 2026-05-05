@@ -5,7 +5,8 @@ use near_sdk::{CryptoHash, NearToken, Promise, env, near, require};
 
 use crate::pool::withdraw::{ON_WITHDRAW_WNEAR_GAS, REMOVE_LOCK_GAS};
 use crate::pool::{
-    MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens, calculate_min_gas,
+    FT_STORAGE_DEPOSIT, MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens,
+    calculate_min_gas,
 };
 use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
@@ -26,35 +27,40 @@ impl LiquidStakingToken {
             "Invalid promise results count"
         );
         let max_len = if is_call { MAX_RESULT_LENGTH } else { 0 };
-
-        if let Ok(bytes) = env::promise_result_checked(0, max_len) {
-            // wNEAR's `ft_transfer_call` returns the *used* amount. Cap
-            // defensively: a misbehaving receiver returning a value above
-            // what was actually sent must not let us under-account the
-            // refund.
-            let consumed = if is_call {
-                near_sdk::serde_json::from_slice::<U128>(&bytes)
-                    .map_or_else(
-                        |_| env::panic_str("Error while parsing a withdrawal result"),
-                        |value| NearToken::from_yoctonear(value.0),
-                    )
-                    .min(amount_to_send)
-            } else {
-                // Self-withdraw (no FT step at all) or plain `ft_transfer`
-                // (no callback): the full `amount_to_send` was delivered.
+        let consumed = match env::promise_result_checked(0, max_len) {
+            Ok(bytes) => {
+                // wNEAR's `ft_transfer_call` returns the *used* amount. Cap
+                // defensively: a misbehaving receiver returning a value above
+                // what was actually sent must not let us under-account the
+                // refund.
+                if is_call {
+                    near_sdk::serde_json::from_slice::<U128>(&bytes)
+                        .map_or_else(
+                            |_| env::panic_str("Error while parsing ft_transfer_call result"),
+                            |value| NearToken::from_yoctonear(value.0),
+                        )
+                        .min(amount_to_send)
+                } else {
+                    // Self-withdraw (no FT step at all) or plain `ft_transfer`
+                    // (no callback): the full `amount_to_send` was delivered.
+                    amount_to_send
+                }
+            }
+            // We ignore errors from `ft_transfer_call`s because of the NEP-141 issue.
+            Err(e) if is_call => {
+                near_sdk::log!("Error received from the ft_transfer_call: {e}");
                 amount_to_send
-            };
+            }
+            Err(_) => env::panic_str("Error occurred while making withdrawal"),
+        };
 
-            self.modify_state_after_withdraw(
-                hash,
-                amount_to_send,
-                amount_to_near_deposit,
-                consumed,
-                storage_to_pay,
-            );
-        } else {
-            near_sdk::log!("Error while withdrawing wNEAR");
-        }
+        self.modify_state_after_withdraw(
+            hash,
+            amount_to_send,
+            amount_to_near_deposit,
+            consumed,
+            storage_to_pay,
+        );
     }
 }
 
@@ -68,7 +74,7 @@ impl LiquidStakingToken {
         // Unreachable: `withdraw` only dispatches to this function on the
         // `Wnear` variant. Kept so the compiler can prove the destructure.
         let WithdrawTokens::Wnear {
-            storage_deposit,
+            is_storage_deposit: storage_deposit,
             msg,
             memo,
             min_gas,
@@ -80,7 +86,7 @@ impl LiquidStakingToken {
         let is_self_withdraw = args.receiver_id == env::current_account_id();
 
         require!(
-            !is_self_withdraw || storage_deposit.is_none(),
+            !is_self_withdraw || !storage_deposit,
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
@@ -95,10 +101,10 @@ impl LiquidStakingToken {
 
         // Storage_deposit is paid at most once per queue entry — only when
         // the user requested one and a prior attempt didn't already pay it.
-        let storage_to_pay = if storage_was_paid {
-            NearToken::ZERO
+        let storage_to_pay = if !storage_was_paid && storage_deposit {
+            FT_STORAGE_DEPOSIT
         } else {
-            storage_deposit.unwrap_or_default()
+            NearToken::ZERO
         };
 
         // wNEAR amount to deliver via ft_transfer this attempt (the user's

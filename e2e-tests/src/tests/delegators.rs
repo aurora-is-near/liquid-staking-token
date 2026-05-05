@@ -25,7 +25,7 @@ async fn test_stake_new_account_increments_delegators() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -42,7 +42,7 @@ async fn test_stake_twice_same_account_no_double_count() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -51,7 +51,7 @@ async fn test_stake_twice_same_account_no_double_count() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -69,7 +69,7 @@ async fn test_two_users_stake_counts_both() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -78,7 +78,7 @@ async fn test_two_users_stake_counts_both() -> TestResult {
         .stake(
             bob,
             STAKE_AMOUNT,
-            stake_message(bob.id(), None, None::<&str>),
+            stake_message(bob.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 3);
@@ -95,7 +95,7 @@ async fn test_unstake_all_decrements_delegators() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -118,7 +118,7 @@ async fn test_partial_unstake_keeps_delegator() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -147,7 +147,7 @@ async fn test_ft_transfer_partial_to_new_receiver_increments() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -171,7 +171,7 @@ async fn test_ft_transfer_all_to_new_receiver_net_zero() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -194,14 +194,14 @@ async fn test_ft_transfer_all_to_existing_receiver_decrements() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     env.lst
         .stake(
             bob,
             STAKE_AMOUNT,
-            stake_message(bob.id(), None, None::<&str>),
+            stake_message(bob.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 3);
@@ -222,7 +222,7 @@ async fn test_ft_transfer_call_all_to_intents_no_refund() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), false, Some(alice.id())),
         )
         .await?;
 
@@ -243,7 +243,7 @@ async fn test_ft_transfer_call_partial_to_intents_no_refund() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -253,7 +253,7 @@ async fn test_ft_transfer_call_partial_to_intents_no_refund() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(env.intents.id(), None, Some(alice.id())),
+            stake_message(env.intents.id(), false, Some(alice.id())),
         )
         .await?;
 
@@ -275,7 +275,7 @@ async fn test_ft_transfer_call_full_refund_no_change() -> TestResult {
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.intents.id(),
-                None,
+                false,
                 Some("a2933a$$%$1!@!#@!@"), // Bad msg triggers rejection
                 Some(&refund_message),
             ),
@@ -298,7 +298,7 @@ async fn test_ft_transfer_call_full_refund_sender_keeps_delegator_status() -> Te
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -311,7 +311,7 @@ async fn test_ft_transfer_call_full_refund_sender_keeps_delegator_status() -> Te
             STAKE_AMOUNT,
             stake_message_with_refund(
                 env.intents.id(),
-                None,
+                false,
                 Some("a2933a$$%$1!@!#@!@"),
                 Some(&refund_message),
             ),
@@ -334,7 +334,7 @@ async fn test_stake_transfer_all_unstake_all_returns_to_one() -> TestResult {
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 2);
@@ -364,7 +364,7 @@ async fn test_alice_bob_stake_alice_unstakes_bob_transfers_to_alice() -> TestRes
         .stake(
             alice,
             STAKE_AMOUNT,
-            stake_message(alice.id(), None, None::<&str>),
+            stake_message(alice.id(), false, None::<&str>),
         )
         .await?;
 
@@ -372,7 +372,7 @@ async fn test_alice_bob_stake_alice_unstakes_bob_transfers_to_alice() -> TestRes
         .stake(
             bob,
             STAKE_AMOUNT,
-            stake_message(bob.id(), None, None::<&str>),
+            stake_message(bob.id(), false, None::<&str>),
         )
         .await?;
     assert_eq!(env.lst.get_number_of_accounts().await?, 3); // owner + alice + bob
@@ -401,7 +401,7 @@ async fn test_self_stake_does_not_double_count_contract() -> TestResult {
         .stake(
             &env.lst.as_account(),
             STAKE_AMOUNT,
-            stake_message(env.lst.id(), None, None::<&str>),
+            stake_message(env.lst.id(), false, None::<&str>),
         )
         .await?;
 
