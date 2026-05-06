@@ -82,6 +82,16 @@ impl LiquidStakingToken {
         }
     }
 
+    pub(crate) fn internal_transfer(
+        &mut self,
+        sender_id: &AccountId,
+        receiver_id: &AccountId,
+        amount: NearToken,
+    ) {
+        self.internal_withdraw(sender_id, amount);
+        self.internal_deposit(receiver_id, amount);
+    }
+
     pub(crate) fn is_zero_balance(&self, account_id: &AccountId) -> bool {
         self.token.ft_balance_of(account_id.clone()).0 == 0
     }

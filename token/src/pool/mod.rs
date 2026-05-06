@@ -23,7 +23,7 @@ const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
 const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
 const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
-const ON_PING_RESTAKE_GAS: Gas = Gas::from_tgas(20);
+const RESTAKE_GAS: Gas = Gas::from_tgas(20);
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
 #[near(serializers = [json])]
@@ -168,22 +168,18 @@ impl LiquidStakingToken {
 
         near_sdk::log!("Rewards synced");
 
-        Promise::new(env::current_account_id())
-            .stake(
-                self.statistics.total_staked_amount,
-                self.validator_public_key.clone(),
-            )
+        self.restake_promise()
             .then(
                 Self::ext(env::current_account_id())
                     .with_unused_gas_weight(1)
-                    .with_static_gas(ON_PING_RESTAKE_GAS)
-                    .on_ping_restake(),
+                    .with_static_gas(RESTAKE_GAS)
+                    .on_restake(),
             )
             .into()
     }
 
     #[private]
-    pub fn on_ping_restake(
+    pub fn on_restake(
         &self,
         #[callback_result] result: Result<(), near_sdk::PromiseError>,
     ) -> PromiseOrValue<bool> {
@@ -299,6 +295,13 @@ impl LiquidStakingToken {
             .unwrap_or_else(|| env::panic_str("Protocol fee exceeds the reward amount"));
 
         (net, fee)
+    }
+
+    pub(crate) fn restake_promise(&self) -> Promise {
+        Promise::new(env::current_account_id()).stake(
+            self.statistics.total_staked_amount,
+            self.validator_public_key.clone(),
+        )
     }
 }
 
