@@ -3,7 +3,6 @@ use near_sdk::{
     AccountId, CryptoHash, Gas, NearToken, Promise, PromiseOrValue, env, near, require,
 };
 
-use crate::pool::MODIFY_STATE_AFTER_STAKE_GAS;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);
@@ -160,6 +159,8 @@ impl LiquidStakingToken {
 
             PromiseOrValue::Value(0.into())
         } else {
+            self.rollback_state_after_unstake(near_amount, lst_amount);
+
             match unstake_trigger {
                 UnstakeTrigger::UserRequest => {
                     let lst_yocto = lst_amount.as_yoctonear();
@@ -176,12 +177,6 @@ impl LiquidStakingToken {
                 }
             }
         }
-    }
-
-    #[private]
-    pub fn modify_state_after_unstake(&mut self, unstake_amount: NearToken, lst_tokens: NearToken) {
-        self.statistics.decrease_stake_amount(unstake_amount);
-        self.internal_withdraw(&env::current_account_id(), lst_tokens);
     }
 }
 
@@ -215,26 +210,23 @@ impl LiquidStakingToken {
             "Attempt to unstake more than staked"
         );
 
-        let new_total_staked_amount = self
-            .statistics
-            .total_staked_amount
-            .checked_sub(unstake_amount)
-            .unwrap_or_else(|| {
-                env::panic_str("Overflow while calculating new total staked amount")
-            });
+        self.modify_state_before_unstake(unstake_amount, lst_amount);
 
-        Self::ext_on(
-            Promise::new(env::current_account_id())
-                .stake(new_total_staked_amount, self.validator_public_key.clone()),
-        )
-        .with_unused_gas_weight(0)
-        .with_static_gas(MODIFY_STATE_AFTER_STAKE_GAS)
-        .modify_state_after_unstake(unstake_amount, lst_amount)
-        .then(
+        self.restake_promise().then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
                 .with_static_gas(ON_UNSTAKE_GAS)
                 .on_unstake(lst_amount, unstake_amount, hash, unstake_trigger),
         )
+    }
+
+    fn modify_state_before_unstake(&mut self, unstake_amount: NearToken, lst_tokens: NearToken) {
+        self.statistics.decrease_stake_amount(unstake_amount);
+        self.internal_withdraw(&env::current_account_id(), lst_tokens);
+    }
+
+    fn rollback_state_after_unstake(&mut self, unstake_amount: NearToken, lst_tokens: NearToken) {
+        self.statistics.increase_stake_amount(unstake_amount);
+        self.internal_deposit(&env::current_account_id(), lst_tokens);
     }
 }

@@ -146,7 +146,7 @@ near contract call-function as-transaction <CONTRACT_ID> stake \
       "refund_message": null
     }
   }' \
-  prepaid-gas '100 Tgas' \
+  prepaid-gas '200 Tgas' \
   attached-deposit '10 NEAR' \
   sign-as alice.near \
   network-config mainnet
@@ -170,7 +170,7 @@ near contract call-function as-transaction wrap.near ft_transfer_call \
     "memo":        null,
     "msg": "{\"receiver_id\":\"alice.near\",\"is_storage_deposit\":false,\"msg\":null,\"memo\":null,\"min_gas\":null}"
   }' \
-  prepaid-gas '100 Tgas' \
+  prepaid-gas '200 Tgas' \
   attached-deposit '1 yoctoNEAR' \
   sign-as alice.near \
   network-config mainnet
@@ -200,7 +200,7 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 | Field                | Type             | Required | Description                                                                                                                                                                                                                                                                                                                              |
 |----------------------|------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `receiver_id`        | `AccountId`      | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                                                                                                         |
-| `is_storage_deposit` | `bool`           | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the staked amount and calls `storage_deposit` on the LST contract for `receiver_id`, registering the account before the token transfer. Required when `receiver_id` is not yet registered on the LST contract. Defaults to `false`.                           |
+| `is_storage_deposit` | `bool`           | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the staked amount and calls `storage_deposit` on the LST contract for `receiver_id`. Required when `receiver_id` is not yet registered. **Set only when registration is needed** — if `receiver_id` is already registered, the 1250 µNEAR is not refunded to the sender; it stays on the contract and accrues to the pool as a reward on the next sync. Defaults to `false`. |
 | `msg`                | `String`         | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                 |
 | `memo`               | `String`         | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                               |
 | `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                            |
@@ -210,6 +210,17 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 (1:1 only while no LST has been minted or no rewards have been synced). Once `ping` has folded validator rewards into
 the tracked staked balance, each LST is worth strictly more than 1 NEAR — staking the same NEAR amount mints fewer LST,
 and unstaking the same LST amount returns more NEAR. The current ratio can be inspected via `get_exchange_rate`.
+
+**Concurrent stakes are safe.** State mutations (`total_staked_amount`, LST mint, `latest_total_balance`) happen
+synchronously in the originating receipt; the validator `stake` action is scheduled as a separate follow-up
+promise that targets the *post-mutation* total. Two users staking in the same block each mutate state in their
+own receipt and then schedule their own `stake` action — the second action sees the first user's contribution
+already reflected, so neither stake amount is lost.
+
+**Failure handling.** If the validator's `stake` action fails (e.g. the validator key was retired), the contract
+rolls back the state changes (`total_staked_amount`, the minted LST, and the tracked total balance) and refunds
+the deposit — native NEAR is transferred back to the sender; wNEAR is re-wrapped via `near_deposit` and returned.
+The user's LST balance is left untouched.
 
 ---
 
@@ -235,6 +246,16 @@ near contract call-function as-transaction <CONTRACT_ID> ft_transfer_call \
 On success the LST tokens are burned and an **independent withdrawal tranche** is recorded under the hash of the
 `UnstakeMessage`. The NEAR for that tranche is released only after the **4-epoch cooldown** measured from this
 specific unstake.
+
+**Concurrent unstakes are safe.** As with staking, the LST burn and `total_staked_amount` decrement happen
+synchronously in the originating receipt, and the validator's restake action is scheduled as a separate follow-up
+that targets the post-mutation total. Multiple users (or multiple unstakes by the same user) processed in the
+same block each commit their own state delta before their own restake fires, so no unstake amount is lost.
+
+**Failure handling.** If the validator's restake action fails after an unstake has been recorded, the contract
+rolls back the state mutations (`total_staked_amount` is restored and the LST is re-credited to the contract
+account so it can be returned to the user) and the original `ft_transfer_call` resolves with the user's LST
+refunded by the standard NEP-141 mechanism. No tranche is appended to the withdrawal queue.
 
 ---
 
@@ -281,7 +302,7 @@ The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 
 | Sub-field            | Type        | Required | Description                                                                                                                                                                                                                                  |
 |----------------------|-------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `is_storage_deposit` | `bool`      | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the withdrawn amount and calls `storage_deposit` on the wNEAR contract for `receiver_id`, registering the account before the wNEAR transfer. Defaults to `false`. |
+| `is_storage_deposit` | `bool`      | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the withdrawn amount and calls `storage_deposit` on the wNEAR contract for `receiver_id`. **Set only when registration is needed** — if `receiver_id` is already registered on wNEAR, the 1250 µNEAR is not refunded to the user; it ends up on the LST contract's balance and accrues to the pool as a reward. Defaults to `false`. |
 | `msg`                | `String`    | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                                                                            |
 | `memo`               | `String`    | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                                                                              |
 | `min_gas`            | `Gas` (u64) | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                                                                                |

@@ -1,6 +1,7 @@
 use liquid_staking_token::pool::WithdrawTokens;
-use near_api::NearToken;
+use near_api::{NearToken, PublicKey};
 use near_sdk::AccountId;
+use std::str::FromStr;
 use testresult::TestResult;
 
 use crate::env::ft::{FT_STORAGE_DEPOSIT, FungibleToken};
@@ -184,7 +185,7 @@ async fn test_stake_with_wnear_and_get_on_nep141_to_bob() -> TestResult {
 }
 
 #[tokio::test]
-async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> TestResult {
+async fn test_stake_with_wnear_and_get_on_nep141_to_unregistered() -> TestResult {
     let env = Env::builder().build().await?;
 
     let alice = env.alice();
@@ -196,7 +197,7 @@ async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> Tes
     let wnear_balance = env.wnear.ft_balance_of(alice.id()).await?;
     assert_eq!(wnear_balance, STAKE_AMOUNT);
 
-    let message = stake_message(&unregistered, false, None::<&AccountId>);
+    let message = stake_message(&unregistered, false, None::<&str>);
 
     env.wnear
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
@@ -229,8 +230,54 @@ async fn test_stake_with_wrapped_near_and_get_on_nep141_to_unregistered() -> Tes
     Ok(())
 }
 
+// We assume that extra storage deposits are not refunded to the sender and left on the contract
+// account id as rewards.
 #[tokio::test]
-async fn test_stake_with_wrapped_near_and_get_on_intents_to_unregistered() -> TestResult {
+async fn test_stake_with_wnear_with_registration_for_registered() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let alice_native_balance_before = alice.near_balance().await?.total;
+    let lst_native_balance_before = env.lst.near_balance().await?.total;
+
+    env.wnear
+        .near_deposit(alice, STAKE_AMOUNT.saturating_add(FT_STORAGE_DEPOSIT))
+        .await?;
+
+    env.wnear
+        .ft_transfer_call(
+            alice,
+            env.lst.id(),
+            STAKE_AMOUNT.saturating_add(FT_STORAGE_DEPOSIT),
+            stake_message(alice.id(), true, None::<&str>),
+        )
+        .await?;
+
+    let lst_balance = env.lst.near_balance().await?;
+    assert_eq!(lst_balance.locked, INIT_LOCK.saturating_add(STAKE_AMOUNT));
+
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+
+    assert_eq!(
+        env.lst.near_balance().await?.total,
+        lst_native_balance_before.saturating_add(FT_STORAGE_DEPOSIT)
+    );
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_native_balance_before
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(FT_STORAGE_DEPOSIT)
+            .saturating_sub(ONE_YOCTO)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_with_wnear_and_get_on_intents_to_unregistered() -> TestResult {
     let env = Env::builder().without_storage_deposit().build().await?;
 
     let alice = env.alice();
@@ -1004,6 +1051,44 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
     assert_eq!(
         env.lst.get_total_balance().await?,
         INIT_BALANCE.saturating_add(STAKE_AMOUNT)
+    );
+
+    Ok(())
+}
+
+#[ignore]
+#[tokio::test]
+async fn test_stake_wnear_with_using_wrong_validator_public_key() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let lst_balance_before = env.lst.near_balance().await?;
+
+    env.lst
+        .set_validator_public_key(
+            PublicKey::from_str("ed25519:UmmZ5Zq5t1i2JFA4aG5T8uhPn6BwMbnDNcEnfJAHjmL").unwrap(),
+        )
+        .await?;
+
+    env.wnear.near_deposit(alice, STAKE_AMOUNT).await?;
+    env.wnear
+        .ft_transfer_call(
+            alice,
+            env.lst.id(),
+            STAKE_AMOUNT,
+            stake_message(alice.id(), false, None::<&str>),
+        )
+        .await?;
+
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.near_balance().await?, lst_balance_before);
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(
+        alice.near_balance().await?.total,
+        alice_balance_before
+            .total
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(ONE_YOCTO)
     );
 
     Ok(())
