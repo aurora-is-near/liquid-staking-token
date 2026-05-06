@@ -358,10 +358,9 @@ impl LiquidStakingToken {
         self.statistics.decrease_stake_amount(stake_amount);
 
         if sender_id != &current_account_id {
-            // Here we decrease the total balance to the stake_amount only (stake_amount = deposit_amount - FT_STORAGE_DEPOSIT).
-            // That's because at this point we consider that batch, which contains a storage_deposit,
-            // was executed successfully, and if there was a storage_deposit, it was also
-            // executed and the user spent those tokens.
+            // Decrease total_balance by stake_amount (not deposit_amount). If a storage_deposit
+            // was requested, those tokens have already been spent on registration and should not
+            // be refunded. If no storage_deposit was requested, stake_amount == deposit_amount.
             self.statistics.decrease_total_balance(stake_amount);
         }
     }

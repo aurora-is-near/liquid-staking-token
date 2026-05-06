@@ -42,6 +42,7 @@ pub enum WithdrawTokens {
     Native,
     Wnear {
         /// Flag indicating whether a storage deposit should be made for the wNEAR
+        /// contract interaction.
         #[serde(default)]
         is_storage_deposit: bool,
         /// Message that will be passed to the `ft_transfer_call` callback.
