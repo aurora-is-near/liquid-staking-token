@@ -366,7 +366,7 @@ async fn lst_wasm() -> anyhow::Result<Vec<u8>> {
         .get_or_try_init(async || {
             let artifact = cargo_near_build::build(
                 cargo_near_build::BuildOpts::builder()
-                    .manifest_path("../token/Cargo.toml")
+                    .manifest_path("../contract/Cargo.toml")
                     .no_abi(true)
                     .no_embed_abi(true)
                     .no_doc(true)
