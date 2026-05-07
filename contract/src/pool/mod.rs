@@ -166,8 +166,6 @@ impl LiquidStakingToken {
             return PromiseOrValue::Value(U128(0));
         }
 
-        near_sdk::log!("Rewards synced");
-
         self.restake_promise()
             .then(
                 Self::ext(env::current_account_id())
@@ -199,7 +197,6 @@ impl LiquidStakingToken {
 }
 
 impl LiquidStakingToken {
-    /// Implementation of [`Self::sync_rewards`] usable from internal call sites.
     pub(crate) fn sync_rewards_internal(
         &mut self,
         amount_to_exclude: Option<NearToken>,

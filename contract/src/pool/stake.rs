@@ -7,13 +7,14 @@ use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, re
 
 use crate::pool::unstake::UnstakeTrigger;
 use crate::pool::{
-    FT_STORAGE_DEPOSIT, MODIFY_STATE_AFTER_STAKE_GAS, RESTAKE_GAS, STORAGE_DEPOSIT_GAS,
-    UnstakeMessage, calculate_min_gas,
+    FT_STORAGE_DEPOSIT, MAX_RESULT_LENGTH, MODIFY_STATE_AFTER_STAKE_GAS, RESTAKE_GAS,
+    STORAGE_DEPOSIT_GAS, UnstakeMessage, calculate_min_gas,
 };
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
 const REFUND_WNEAR_DEPOSIT_GAS: Gas = Gas::from_tgas(1);
+const HANDLE_ON_NEAR_WITHDRAW_GAS: Gas = Gas::from_tgas(10);
 const ON_RESTAKE_OR_REFUND_GAS: Gas = Gas::from_tgas(50);
 
 #[derive(Debug, Clone)]
@@ -244,6 +245,22 @@ impl LiquidStakingToken {
             }
         }
     }
+
+    #[private]
+    pub fn handle_on_near_withdraw(&self, deposit_amount: U128) -> PromiseOrValue<U128> {
+        env::promise_result_checked(0, MAX_RESULT_LENGTH).map_or_else(
+            |_| {
+                self.refund_wnear_promise(NearToken::from_yoctonear(deposit_amount.0))
+                    .into()
+            },
+            |result| {
+                near_sdk::serde_json::from_slice(&result).map_or_else(
+                    |_| env::panic_str("Failed to parse the refund amount"),
+                    PromiseOrValue::Value,
+                )
+            },
+        )
+    }
 }
 
 impl LiquidStakingToken {
@@ -263,6 +280,12 @@ impl LiquidStakingToken {
                 Self::ext(env::current_account_id())
                     .with_unused_gas_weight(1)
                     .on_near_withdraw(sender_id, deposit_amount, args),
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_unused_gas_weight(0)
+                    .with_static_gas(HANDLE_ON_NEAR_WITHDRAW_GAS)
+                    .handle_on_near_withdraw(deposit_amount),
             )
             .into()
     }

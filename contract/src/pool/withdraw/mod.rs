@@ -58,7 +58,7 @@ impl LiquidStakingToken {
         );
 
         match args.withdraw_tokens {
-            WithdrawTokens::Native => Self::withdraw_native(args.receiver_id, amount, hash),
+            WithdrawTokens::Native => self.withdraw_native(args.receiver_id, amount, hash),
             WithdrawTokens::Wnear { .. } => self.withdraw_wnear(args, amount, hash),
         }
     }
