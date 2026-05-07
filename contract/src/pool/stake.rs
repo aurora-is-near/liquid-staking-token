@@ -296,9 +296,14 @@ impl LiquidStakingToken {
             "The amount of LST tokens to be minted must be more than 0"
         );
 
-        let mut promise = Promise::new(env::current_account_id())
-            .refund_to(env::refund_to_account_id())
-            .transfer(stake_amount);
+        let mut promise = Promise::new(env::current_account_id());
+
+        // It makes sense in case of staking native NEAR only.
+        if matches!(deposit_token, DepositToken::Native) {
+            promise = promise
+                .refund_to(env::refund_to_account_id())
+                .transfer(stake_amount);
+        }
 
         if args.is_storage_deposit {
             promise = ext_storage_management::ext_on(promise)
