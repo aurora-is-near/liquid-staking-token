@@ -74,16 +74,16 @@ impl LiquidStakingToken {
         sender_id: AccountId,
         amount: U128,
         args: StakeMessage,
-    ) -> Promise {
-        require!(
-            env::promise_result_checked(0, 0).is_ok(),
-            "Failed to withdraw NEAR from wNEAR"
-        );
+    ) -> PromiseOrValue<U128> {
+        if env::promise_result_checked(0, 0).is_err() {
+            return PromiseOrValue::Value(amount);
+        }
 
         let stake_amount = NearToken::from_yoctonear(amount.0);
 
         self.sync_rewards_internal(Some(stake_amount));
         self.stake_and_deposit(sender_id, args, stake_amount, DepositToken::Wnear)
+            .into()
     }
 
     #[private]
