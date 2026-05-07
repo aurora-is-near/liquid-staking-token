@@ -7,9 +7,9 @@ repository = "https://github.com/aurora-is-near/liquid-staking-token"
 [workspace]
 resolver = "3"
 members = [
-    "token",
-    "e2e-tests",
-    "e2e-tests/test-contracts/ft-receiver",
+    "contract",
+    "tests",
+    "tests/test-contracts/ft-receiver",
 ]
 
 [workspace.dependencies]
