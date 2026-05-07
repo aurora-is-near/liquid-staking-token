@@ -415,8 +415,8 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
   earning on the increased principal.
 - If the restake action itself fails (e.g. the validator key was retired), `ping`'s callback unstakes everything and
   emits a `Restake failed; …Admin recovery required` log line. The contract then continues serving withdrawals from
-  the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` and triggers a fresh
-  stake (see [Admin operations](#admin-operations)).
+  the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` with a working key
+  (which now restakes immediately as part of the same call — see [Admin operations](#admin-operations)).
 - `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
   active users do not need to call `ping` themselves to get an up-to-date exchange rate.
 
@@ -490,16 +490,19 @@ near contract call-function as-transaction <CONTRACT_ID> set_validator_public_ke
   network-config mainnet
 ```
 
-- Replaces the in-state validator public key. Requires 1 yoctoNEAR attached for full-access-key confirmation. The
-  contract's currently-locked NEAR remains bonded to the *old* validator until a stake action fires with the new
-  key.
-- Migration is propagated by the next stake-bearing operation: `stake`, `unstake`, or `ping` (after rewards are
-  detected). NEAR's runtime then schedules unbonding from the old validator over the standard 4-epoch period before
-  bonding to the new one.
-- If the old validator is unresponsive (no rewards arrive, so `ping` becomes a no-op), use `add_full_access_key` to
-  manually fire a stake action and force the migration.
-- A typo (or otherwise-invalid key) bricks subsequent stake operations until the admin reissues the call. The contract
-  performs no key-ownership check.
+- Replaces the in-state validator public key and **immediately schedules a restake against the new key** in the
+  same transaction — no need to wait for the next user-initiated `stake` / `unstake` / `ping`. NEAR's runtime then
+  schedules unbonding from the old validator over the standard 4-epoch period before bonding to the new one.
+- Returns a `Promise` (was a void method in earlier versions). Off-chain integrations that previously called this
+  method may need to update their typings to handle the promise return.
+- Requires 1 yoctoNEAR attached for full-access-key confirmation.
+- **Bad-key recovery**: if the new key is invalid or otherwise causes the restake action to fail, the contract's
+  `on_restake` callback (the same one that guards `ping`) fires `stake(0, new_key)`, which initiates full
+  unbonding from any prior key. The contract then continues serving withdrawals from the unbonded NEAR but stops
+  earning rewards until the admin reissues `set_validator_public_key` with a working key. A
+  `Restake failed; …Admin recovery required` log line is emitted on this path.
+- The contract performs no key-ownership check, so a typo is the admin's responsibility — but the recovery above
+  ensures it doesn't permanently brick the contract; it just halts rewards until corrected.
 
 ### `add_full_access_key` — emergency recovery key
 

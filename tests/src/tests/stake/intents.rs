@@ -38,11 +38,9 @@ async fn test_stake_by_sending_wnear_from_intents() -> TestResult {
         )
         .await;
 
-    let r = env
-        .intents
+    env.intents
         .execute_intent(alice.id(), withdraw_intent)
         .await?;
-    dbg!(r);
 
     assert_eq!(
         env.lst.get_total_balance().await?,
