@@ -681,6 +681,11 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_contract_with_refund() -> Te
         .await?;
 
     assert_eq!(
+        env.lst.ft_balance_of(lst_receiver.id()).await?,
+        HALF_OF_STAKE
+    );
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(HALF_OF_STAKE)
     );
@@ -1126,6 +1131,43 @@ async fn test_stake_wnear_with_deposit_less_than_needed_for_registration() -> Te
             .total
             .saturating_sub(STAKE_AMOUNT)
             .saturating_sub(ONE_YOCTO)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_wnear_stake_with_exceeded_amount_of_gas() -> TestResult {
+    let env = Env::builder().build().await?;
+    let alice = env.alice();
+    let receiver = env.deploy_ft_receiver().await?;
+
+    env.wnear.near_deposit(alice, STAKE_AMOUNT).await?;
+
+    let refund_message = unstake_message(alice.id(), &WithdrawTokens::Native);
+
+    let message = near_sdk::serde_json::json!({
+        "receiver_id": receiver.id(),
+        "is_storage_deposit": false,
+        "msg": "0",
+        "min_gas": 250_000_000_000_000u64, // too much gas
+        "refund_message": refund_message,
+    });
+
+    env.wnear
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
+        .await?;
+
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(receiver.id()).await?, ZERO_AMOUNT);
+    assert_eq!(
+        env.lst.ft_balance_of(env.lst.id()).await?, // LST tokens stay on the contract because of exceeded gas
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+    assert_eq!(
+        env.lst.ft_total_supply().await?,
+        env.lst.ft_balance_of(env.lst.id()).await?
     );
 
     Ok(())

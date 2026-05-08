@@ -5,9 +5,9 @@ use near_sdk::{CryptoHash, NearToken, Promise, env, near, require};
 
 use crate::pool::withdraw::{ON_WITHDRAW_WNEAR_GAS, REMOVE_LOCK_GAS};
 use crate::pool::{
-    FT_STORAGE_DEPOSIT, MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens,
-    calculate_min_gas,
+    MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens, calculate_min_gas,
 };
+use crate::storage::FT_STORAGE_DEPOSIT;
 use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
