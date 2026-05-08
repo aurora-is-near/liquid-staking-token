@@ -30,6 +30,7 @@ impl LiquidStakingToken {
         near_sdk::log!("Validator public key set to: {validator_public_key}");
         self.validator_public_key = validator_public_key;
 
+        self.sync_rewards_internal(None);
         self.restake_promise().then(
             Self::ext(env::current_account_id())
                 .with_unused_gas_weight(1)
