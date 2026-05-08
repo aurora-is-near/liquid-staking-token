@@ -1,6 +1,7 @@
 use near_plugins::{AccessControllable, access_control_any};
 use near_sdk::{CryptoHash, Promise, PublicKey, assert_one_yocto, env, near, require};
 
+use crate::pool::RESTAKE_GAS;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, Role};
 
 const MAX_PROTOCOL_FEE_BPS: u16 = 2_000; // 20%
@@ -24,10 +25,18 @@ impl LiquidStakingToken {
     /// Updates the validator public key.
     #[payable]
     #[access_control_any(roles(Role::Admin))]
-    pub fn set_validator_public_key(&mut self, validator_public_key: PublicKey) {
+    pub fn set_validator_public_key(&mut self, validator_public_key: PublicKey) -> Promise {
         assert_one_yocto();
         near_sdk::log!("Validator public key set to: {validator_public_key}");
         self.validator_public_key = validator_public_key;
+
+        self.sync_rewards_internal(None);
+        self.restake_promise().then(
+            Self::ext(env::current_account_id())
+                .with_unused_gas_weight(1)
+                .with_static_gas(RESTAKE_GAS)
+                .on_restake(),
+        )
     }
 
     /// Adds a new full access key to the contract.

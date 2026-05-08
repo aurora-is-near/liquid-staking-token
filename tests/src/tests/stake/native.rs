@@ -909,3 +909,56 @@ async fn test_stake_native_and_sending_lst_tokens_to_contract_with_refund_and_un
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_stake_with_native_near_without_registration() -> TestResult {
+    let env = Env::builder().without_storage_deposit().build().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let lst_balance_before = env.lst.near_balance().await?;
+
+    let result = env
+        .lst
+        .stake(
+            alice,
+            INIT_BALANCE.saturating_sub(ONE_YOCTO),
+            stake_message(alice.id(), false, None::<&str>),
+        )
+        .await;
+    assert!(result.is_err());
+
+    assert_eq!(env.lst.get_total_balance().await?, INIT_BALANCE);
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(alice.near_balance().await?, alice_balance_before);
+    assert_eq!(env.lst.near_balance().await?, lst_balance_before);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stake_native_with_deposit_less_than_needed_for_registration() -> TestResult {
+    let env = Env::builder().without_storage_deposit().build().await?;
+    let alice = env.alice();
+    let alice_balance_before = alice.near_balance().await?;
+    let lst_balance_before = env.lst.near_balance().await?;
+    let deposit = FT_STORAGE_DEPOSIT.saturating_sub(ONE_YOCTO);
+
+    let result = env
+        .lst
+        .stake(
+            alice,
+            deposit,
+            stake_message(alice.id(), true, None::<&str>),
+        )
+        .await;
+    assert!(result.is_err());
+
+    assert_eq!(env.lst.get_total_balance().await?, INIT_BALANCE);
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(alice.near_balance().await?, alice_balance_before);
+    assert_eq!(env.lst.near_balance().await?, lst_balance_before);
+
+    Ok(())
+}

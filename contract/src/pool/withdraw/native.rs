@@ -8,7 +8,6 @@ impl LiquidStakingToken {
     #[private]
     pub fn on_withdraw_native(&mut self, hash: CryptoHash, amount: NearToken) {
         if env::promise_result_checked(0, 0).is_ok() {
-            near_sdk::log!("Native NEAR withdrawn successfully");
             self.withdrawal_requests.remove_request(&hash);
             self.statistics.decrease_total_balance(amount);
             self.statistics.decrease_pending_withdrawals(amount);

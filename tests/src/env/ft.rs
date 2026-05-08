@@ -1,4 +1,5 @@
 use liquid_staking_token::ONE_YOCTO;
+use liquid_staking_token::pool::UnstakeMessage;
 use near_api::types::json::U128;
 use near_api::types::storage::StorageBalance;
 use near_api::types::transaction::result::ExecutionSuccess;
@@ -28,7 +29,7 @@ pub trait FungibleToken {
         sender: &Account,
         receiver_id: &AccountId,
         amount: NearToken,
-        msg: impl Serialize,
+        msg: impl FtMessage,
     ) -> anyhow::Result<ExecutionSuccess>;
     async fn ft_on_transfer(
         &self,
@@ -109,7 +110,7 @@ impl FungibleToken for Contract {
                 }),
             )
             .transaction()
-            .deposit(NearToken::from_yoctonear(1))
+            .deposit(ONE_YOCTO)
             .max_gas()
             .with_signer(sender.id().clone(), sender.signer())
             .send_to(self.config())
@@ -123,7 +124,7 @@ impl FungibleToken for Contract {
         sender: &Account,
         receiver_id: &AccountId,
         amount: NearToken,
-        msg: impl Serialize,
+        msg: impl FtMessage,
     ) -> anyhow::Result<ExecutionSuccess> {
         self.inner
             .call_function(
@@ -131,11 +132,11 @@ impl FungibleToken for Contract {
                 json!({
                     "receiver_id": receiver_id,
                     "amount": amount,
-                    "msg": near_sdk::serde_json::to_string(&msg)?,
+                    "msg": msg.to_msg()?,
                 }),
             )
             .transaction()
-            .deposit(NearToken::from_yoctonear(1))
+            .deposit(ONE_YOCTO)
             .max_gas()
             .with_signer(sender.id().clone(), sender.signer())
             .send_to(self.config())
@@ -239,5 +240,39 @@ impl FungibleToken for Contract {
             .await?
             .into_result()
             .map_err(Into::into)
+    }
+}
+
+pub trait FtMessage {
+    fn to_msg(&self) -> anyhow::Result<String>;
+}
+
+impl FtMessage for &AccountId {
+    fn to_msg(&self) -> anyhow::Result<String> {
+        Ok(self.to_string())
+    }
+}
+
+impl FtMessage for &UnstakeMessage {
+    fn to_msg(&self) -> anyhow::Result<String> {
+        near_sdk::serde_json::to_string(self).map_err(Into::into)
+    }
+}
+
+impl FtMessage for &str {
+    fn to_msg(&self) -> anyhow::Result<String> {
+        Ok((*self).to_string())
+    }
+}
+
+impl FtMessage for NearToken {
+    fn to_msg(&self) -> anyhow::Result<String> {
+        Ok(self.as_yoctonear().to_string())
+    }
+}
+
+impl FtMessage for near_sdk::serde_json::Value {
+    fn to_msg(&self) -> anyhow::Result<String> {
+        near_sdk::serde_json::to_string(self).map_err(Into::into)
     }
 }

@@ -5,9 +5,9 @@ use near_sdk::{CryptoHash, NearToken, Promise, env, near, require};
 
 use crate::pool::withdraw::{ON_WITHDRAW_WNEAR_GAS, REMOVE_LOCK_GAS};
 use crate::pool::{
-    FT_STORAGE_DEPOSIT, MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens,
-    calculate_min_gas,
+    MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens, calculate_min_gas,
 };
+use crate::storage::FT_STORAGE_DEPOSIT;
 use crate::traits::{NEAR_DEPOSIT_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
@@ -74,7 +74,7 @@ impl LiquidStakingToken {
         // Unreachable: `withdraw` only dispatches to this function on the
         // `Wnear` variant. Kept so the compiler can prove the destructure.
         let WithdrawTokens::Wnear {
-            is_storage_deposit: storage_deposit,
+            is_storage_deposit,
             msg,
             memo,
             min_gas,
@@ -86,7 +86,7 @@ impl LiquidStakingToken {
         let is_self_withdraw = args.receiver_id == env::current_account_id();
 
         require!(
-            !is_self_withdraw || !storage_deposit,
+            !is_self_withdraw || !is_storage_deposit,
             "There couldn't be a storage_deposit for the current account withdrawal"
         );
 
@@ -101,7 +101,7 @@ impl LiquidStakingToken {
 
         // Storage_deposit is paid at most once per queue entry — only when
         // the user requested one and a prior attempt didn't already pay it.
-        let storage_to_pay = if !storage_was_paid && storage_deposit {
+        let storage_to_pay = if !storage_was_paid && is_storage_deposit {
             FT_STORAGE_DEPOSIT
         } else {
             NearToken::ZERO

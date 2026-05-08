@@ -14,6 +14,8 @@ use near_sdk::{AccountId, NearToken, env, near};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
+pub const FT_STORAGE_DEPOSIT: NearToken = NearToken::from_micronear(1250);
+
 #[near]
 impl StorageManagement for LiquidStakingToken {
     #[payable]
@@ -69,6 +71,13 @@ impl StorageManagement for LiquidStakingToken {
 
     fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
         self.token.storage_balance_of(account_id)
+    }
+}
+
+impl LiquidStakingToken {
+    pub(crate) fn is_registered(&self, account_id: &AccountId) -> bool {
+        self.storage_balance_of(account_id.clone())
+            .is_some_and(|b| b.total >= FT_STORAGE_DEPOSIT)
     }
 }
 

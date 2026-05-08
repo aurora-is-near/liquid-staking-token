@@ -1,19 +1,21 @@
 use near_contract_standards::fungible_token::FungibleTokenResolver;
 use near_contract_standards::fungible_token::receiver::ext_ft_receiver;
-use near_contract_standards::storage_management::{StorageManagement, ext_storage_management};
+use near_contract_standards::storage_management::ext_storage_management;
 use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, require};
 
 use crate::pool::unstake::UnstakeTrigger;
 use crate::pool::{
-    FT_STORAGE_DEPOSIT, MODIFY_STATE_AFTER_STAKE_GAS, RESTAKE_GAS, STORAGE_DEPOSIT_GAS,
-    UnstakeMessage, calculate_min_gas,
+    MODIFY_STATE_AFTER_STAKE_GAS, RESTAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage,
+    calculate_min_gas,
 };
+use crate::storage::FT_STORAGE_DEPOSIT;
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
 const REFUND_WNEAR_DEPOSIT_GAS: Gas = Gas::from_tgas(1);
+const ON_FT_ON_TRANSFER_GAS: Gas = Gas::from_tgas(40);
 const ON_RESTAKE_OR_REFUND_GAS: Gas = Gas::from_tgas(50);
 
 #[derive(Debug, Clone)]
@@ -65,6 +67,7 @@ impl LiquidStakingToken {
 
         self.sync_rewards_internal(Some(amount_to_exclude));
         self.stake_and_deposit(sender_id, args, deposit_amount, DepositToken::Native)
+            .unwrap_or_else(|err| env::panic_str(err))
     }
 
     #[private]
@@ -73,16 +76,20 @@ impl LiquidStakingToken {
         sender_id: AccountId,
         amount: U128,
         args: StakeMessage,
-    ) -> Promise {
-        require!(
-            env::promise_result_checked(0, 0).is_ok(),
-            "Failed to withdraw NEAR from wNEAR"
-        );
+    ) -> PromiseOrValue<U128> {
+        if env::promise_result_checked(0, 0).is_err() {
+            return PromiseOrValue::Value(amount);
+        }
 
         let stake_amount = NearToken::from_yoctonear(amount.0);
 
         self.sync_rewards_internal(Some(stake_amount));
         self.stake_and_deposit(sender_id, args, stake_amount, DepositToken::Wnear)
+            .unwrap_or_else(|error| {
+                near_sdk::log!("Error occurred while trying to stake and deposit: {error}");
+                self.refund_wnear_promise(stake_amount)
+            })
+            .into()
     }
 
     #[private]
@@ -96,8 +103,7 @@ impl LiquidStakingToken {
     ) {
         // At this point the receiver should be already registered. Panic if not.
         require!(
-            self.storage_balance_of(receiver_id.clone())
-                .is_some_and(|b| b.total >= FT_STORAGE_DEPOSIT),
+            self.is_registered(receiver_id),
             format!("The account {receiver_id} is not registered")
         );
 
@@ -126,6 +132,11 @@ impl LiquidStakingToken {
     ) -> PromiseOrValue<U128> {
         match env::promise_result_checked(0, 0) {
             Ok(_) => {
+                // Check if the receiver is still registered. Return 0 if not.
+                if !self.is_registered(&args.receiver_id) {
+                    return PromiseOrValue::Value(0.into());
+                }
+
                 // Move minted LST tokens from the contract account id to the receiver account id.
                 self.internal_transfer(&env::current_account_id(), &args.receiver_id, lst_amount);
 
@@ -137,14 +148,11 @@ impl LiquidStakingToken {
                     ext_ft_receiver::ext(args.receiver_id.clone())
                         .with_static_gas(min_gas)
                         .with_unused_gas_weight(1)
-                        .ft_on_transfer(
-                            sender_id,
-                            lst_amount.as_yoctonear().into(),
-                            msg.to_string(),
-                        )
+                        .ft_on_transfer(sender_id, lst_amount.as_yoctonear().into(), msg.to_owned())
                         .then(
                             Self::ext(env::current_account_id())
-                                .with_unused_gas_weight(1)
+                                .with_static_gas(ON_FT_ON_TRANSFER_GAS)
+                                .with_unused_gas_weight(0)
                                 .on_ft_on_transfer(lst_amount, args),
                         )
                         .into()
@@ -174,7 +182,7 @@ impl LiquidStakingToken {
         match env::promise_result_checked(0, 0) {
             Ok(_) => deposit_amount.as_yoctonear().into(),
             Err(e) => {
-                near_sdk::log!("Error while depositing near to wNEAR: {e}");
+                near_sdk::log!("Error while wrapping native NEAR to wNEAR: {e}");
                 0.into()
             }
         }
@@ -273,28 +281,24 @@ impl LiquidStakingToken {
         args: StakeMessage,
         deposit_amount: NearToken,
         deposit_token: DepositToken,
-    ) -> Promise {
+    ) -> Result<Promise, &'static str> {
         let stake_amount = if args.is_storage_deposit {
             deposit_amount
                 .checked_sub(FT_STORAGE_DEPOSIT)
-                .unwrap_or_else(|| {
-                    env::panic_str("Storage deposit cannot be greater than the staked amount")
-                })
+                .ok_or("Storage deposit cannot be greater than the staked amount")?
         } else {
             deposit_amount
         };
 
-        require!(
-            stake_amount > NearToken::ZERO,
-            "The amount of NEAR tokens for staking must be more than 0"
-        );
+        if stake_amount == NearToken::ZERO {
+            return Err("The amount of NEAR tokens for staking must be more than 0");
+        }
 
         let lst_tokens = self.near_to_lst(stake_amount);
 
-        require!(
-            lst_tokens > NearToken::ZERO,
-            "The amount of LST tokens to be minted must be more than 0"
-        );
+        if lst_tokens == NearToken::ZERO {
+            return Err("The amount of LST tokens to be minted must be more than 0");
+        }
 
         let mut promise = Promise::new(env::current_account_id());
 
@@ -312,7 +316,7 @@ impl LiquidStakingToken {
                 .storage_deposit(Some(args.receiver_id.clone()), Some(true));
         }
 
-        Self::ext_on(promise)
+        Ok(Self::ext_on(promise)
             .with_static_gas(MODIFY_STATE_AFTER_STAKE_GAS)
             .with_unused_gas_weight(0)
             .modify_state_before_stake(
@@ -334,7 +338,7 @@ impl LiquidStakingToken {
                         args,
                         deposit_token,
                     ),
-            )
+            ))
     }
 
     fn refund_wnear_promise(&self, deposit_amount: NearToken) -> Promise {

@@ -18,7 +18,6 @@ mod stats;
 mod unstake;
 mod withdraw;
 
-const FT_STORAGE_DEPOSIT: NearToken = NearToken::from_micronear(1250);
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
 const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
@@ -166,8 +165,6 @@ impl LiquidStakingToken {
             return PromiseOrValue::Value(U128(0));
         }
 
-        near_sdk::log!("Rewards synced");
-
         self.restake_promise()
             .then(
                 Self::ext(env::current_account_id())
@@ -199,7 +196,6 @@ impl LiquidStakingToken {
 }
 
 impl LiquidStakingToken {
-    /// Implementation of [`Self::sync_rewards`] usable from internal call sites.
     pub(crate) fn sync_rewards_internal(
         &mut self,
         amount_to_exclude: Option<NearToken>,

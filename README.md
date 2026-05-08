@@ -197,14 +197,14 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 }
 ```
 
-| Field                | Type             | Required | Description                                                                                                                                                                                                                                                                                                                              |
-|----------------------|------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `receiver_id`        | `AccountId`      | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                                                                                                         |
+| Field                | Type             | Required | Description                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|----------------------|------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `receiver_id`        | `AccountId`      | Yes      | Account that will receive the minted LST tokens.                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `is_storage_deposit` | `bool`           | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the staked amount and calls `storage_deposit` on the LST contract for `receiver_id`. Required when `receiver_id` is not yet registered. **Set only when registration is needed** — if `receiver_id` is already registered, the 1250 µNEAR is not refunded to the sender; it stays on the contract and accrues to the pool as a reward on the next sync. Defaults to `false`. |
-| `msg`                | `String`         | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                 |
-| `memo`               | `String`         | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                               |
-| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                            |
-| `refund_message`     | `UnstakeMessage` | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery. |
+| `msg`                | `String`         | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                                                                                                                                |
+| `memo`               | `String`         | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                                                                                                                                              |
+| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                                                                                                                                           |
+| `refund_message`     | `UnstakeMessage` | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery.                                                                                                                |
 
 **Token amount minted.** The amount of LST minted is `stake_amount * total_lst_supply / total_staked_amount`, floored
 (1:1 only while no LST has been minted or no rewards have been synced). Once `ping` has folded validator rewards into
@@ -300,12 +300,12 @@ The unstaked NEAR is sent as a native NEAR transfer to `receiver_id` once `withd
 
 The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 
-| Sub-field            | Type        | Required | Description                                                                                                                                                                                                                                  |
-|----------------------|-------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Sub-field            | Type        | Required | Description                                                                                                                                                                                                                                                                                                                                                                                                     |
+|----------------------|-------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `is_storage_deposit` | `bool`      | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the withdrawn amount and calls `storage_deposit` on the wNEAR contract for `receiver_id`. **Set only when registration is needed** — if `receiver_id` is already registered on wNEAR, the 1250 µNEAR is not refunded to the user; it ends up on the LST contract's balance and accrues to the pool as a reward. Defaults to `false`. |
-| `msg`                | `String`    | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                                                                            |
-| `memo`               | `String`    | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                                                                              |
-| `min_gas`            | `Gas` (u64) | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                                                                                |
+| `msg`                | `String`    | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                                                                                                                                                                                                                                               |
+| `memo`               | `String`    | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                                                                                                                                                                                                                                                 |
+| `min_gas`            | `Gas` (u64) | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                                                                                                                                                                                                                                                   |
 
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
@@ -415,8 +415,8 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
   earning on the increased principal.
 - If the restake action itself fails (e.g. the validator key was retired), `ping`'s callback unstakes everything and
   emits a `Restake failed; …Admin recovery required` log line. The contract then continues serving withdrawals from
-  the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` and triggers a fresh
-  stake (see [Admin operations](#admin-operations)).
+  the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` with a working key
+  (which now restakes immediately as part of the same call — see [Admin operations](#admin-operations)).
 - `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
   active users do not need to call `ping` themselves to get an up-to-date exchange rate.
 
@@ -484,22 +484,25 @@ for full-access-key confirmation. `set_protocol_fee_bps` is documented under
 ```bash
 near contract call-function as-transaction <CONTRACT_ID> set_validator_public_key \
   json-args '{ "validator_public_key": "ed25519:<NEW_BASE58_KEY>" }' \
-  prepaid-gas '20 Tgas' \
+  prepaid-gas '50 Tgas' \
   attached-deposit '1 yoctoNEAR' \
   sign-as admin.near \
   network-config mainnet
 ```
 
-- Replaces the in-state validator public key. Requires 1 yoctoNEAR attached for full-access-key confirmation. The
-  contract's currently-locked NEAR remains bonded to the *old* validator until a stake action fires with the new
-  key.
-- Migration is propagated by the next stake-bearing operation: `stake`, `unstake`, or `ping` (after rewards are
-  detected). NEAR's runtime then schedules unbonding from the old validator over the standard 4-epoch period before
-  bonding to the new one.
-- If the old validator is unresponsive (no rewards arrive, so `ping` becomes a no-op), use `add_full_access_key` to
-  manually fire a stake action and force the migration.
-- A typo (or otherwise-invalid key) bricks subsequent stake operations until the admin reissues the call. The contract
-  performs no key-ownership check.
+- Replaces the in-state validator public key and **immediately schedules a restake against the new key** in the
+  same transaction — no need to wait for the next user-initiated `stake` / `unstake` / `ping`. NEAR's runtime then
+  schedules unbonding from the old validator over the standard 4-epoch period before bonding to the new one.
+- Returns a `Promise` (was a void method in earlier versions). Off-chain integrations that previously called this
+  method may need to update their typings to handle the promise return.
+- Requires 1 yoctoNEAR attached for full-access-key confirmation.
+- **Bad-key recovery**: if the new key is invalid or otherwise causes the restake action to fail, the contract's
+  `on_restake` callback (the same one that guards `ping`) fires `stake(0, new_key)`, which initiates full
+  unbonding from any prior key. The contract then continues serving withdrawals from the unbonded NEAR but stops
+  earning rewards until the admin reissues `set_validator_public_key` with a working key. A
+  `Restake failed; …Admin recovery required` log line is emitted on this path.
+- The contract performs no key-ownership check, so a typo is the admin's responsibility — but the recovery above
+  ensures it doesn't permanently brick the contract; it just halts rewards until corrected.
 
 ### `add_full_access_key` — emergency recovery key
 

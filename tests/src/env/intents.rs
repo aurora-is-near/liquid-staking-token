@@ -13,6 +13,11 @@ use crate::env::signer;
 use crate::env::types::{Account, Contract};
 
 pub trait Intents {
+    async fn execute_intent(
+        &self,
+        sender_id: &AccountId,
+        intent: MultiPayload,
+    ) -> anyhow::Result<ExecutionSuccess>;
     async fn execute_intents(
         &self,
         sender_id: &AccountId,
@@ -26,6 +31,14 @@ pub trait Intents {
 }
 
 impl Intents for Contract {
+    async fn execute_intent(
+        &self,
+        sender_id: &AccountId,
+        intent: MultiPayload,
+    ) -> anyhow::Result<ExecutionSuccess> {
+        self.execute_intents(sender_id, vec![intent]).await
+    }
+
     async fn execute_intents(
         &self,
         sender_id: &AccountId,
