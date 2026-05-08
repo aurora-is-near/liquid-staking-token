@@ -9,17 +9,16 @@ impl LiquidStakingToken {
     pub fn on_withdraw_native(&mut self, hash: CryptoHash, amount: NearToken) {
         if env::promise_result_checked(0, 0).is_ok() {
             self.withdrawal_requests.remove_request(&hash);
+            self.statistics.decrease_total_balance(amount);
+            self.statistics.decrease_pending_withdrawals(amount);
         } else {
             near_sdk::log!("Error while withdrawing Native NEAR");
-            self.statistics.increase_total_balance(amount);
-            self.statistics.increase_pending_withdrawals(amount);
         }
     }
 }
 
 impl LiquidStakingToken {
     pub(super) fn withdraw_native(
-        &mut self,
         receiver_id: AccountId,
         amount: NearToken,
         hash: CryptoHash,
@@ -28,9 +27,6 @@ impl LiquidStakingToken {
             "Withdraw to {receiver_id} amount: {} yoctoNEAR",
             amount.as_yoctonear(),
         );
-
-        self.statistics.decrease_total_balance(amount);
-        self.statistics.decrease_pending_withdrawals(amount);
 
         Promise::new(receiver_id)
             .transfer(amount)

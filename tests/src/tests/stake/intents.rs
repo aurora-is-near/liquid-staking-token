@@ -51,6 +51,16 @@ async fn test_stake_by_sending_wnear_from_intents() -> TestResult {
         env.lst.near_balance().await?.locked,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
+    assert_eq!(
+        env.intents
+            .mt_balance_of(alice.id(), env.wnear.id())
+            .await?,
+        ZERO_AMOUNT
+    );
+    assert_eq!(
+        env.wnear.ft_balance_of(env.intents.id()).await?,
+        ZERO_AMOUNT
+    );
 
     Ok(())
 }
@@ -143,7 +153,12 @@ async fn test_stake_by_sending_wnear_from_intents_less_than_sd_and_without_regis
 
     assert_eq!(env.lst.get_total_balance().await?, INIT_BALANCE);
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.ft_balance_of(env.intents.id()).await?, ZERO_AMOUNT);
     assert_eq!(env.lst.near_balance().await?.locked, INIT_LOCK);
+    assert_eq!(
+        env.wnear.ft_balance_of(env.intents.id()).await?,
+        STAKE_AMOUNT
+    );
     assert_eq!(
         env.intents
             .mt_balance_of(alice.id(), env.wnear.id())
