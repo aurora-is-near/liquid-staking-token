@@ -606,3 +606,4 @@ partially consumes the LST tokens.
 4. alice calls withdraw({ receiver_id: "alice.near", withdraw_tokens: { "wnear": {} } })
    → 10 wNEAR returned to alice
 ```
+
