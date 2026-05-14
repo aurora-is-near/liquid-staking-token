@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::select;
+#[cfg(unix)]
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -48,21 +49,33 @@ impl EpochWatcher {
 
     pub fn run(mut self) -> JoinHandle<()> {
         tracing::info!("epoch watcher started");
+        #[cfg(unix)]
+        let mut sigterm =
+            tokio::signal::unix::signal(SignalKind::terminate()).expect("install SIGTERM handler");
+
         tokio::spawn(async move {
-            let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
-                .expect("failed to set up sigterm handler");
+            let shutdown = async {
+                #[cfg(unix)]
+                {
+                    select! {
+                        _ = tokio::signal::ctrl_c() => {}
+                        _ = sigterm.recv() => {}
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = tokio::signal::ctrl_c().await;
+                }
+            };
+            tokio::pin!(shutdown);
 
             let mut stream: Option<BlocksStream> = None;
 
             loop {
                 let event = select! {
                     event = self.next_event(&mut stream) => event,
-                    _ = tokio::signal::ctrl_c() => {
-                        tracing::info!("received ctrl-c signal, stopping watcher...");
-                        break;
-                    }
-                    _ = sigterm.recv() => {
-                        tracing::info!("received sigterm signal, stopping watcher...");
+                    () = &mut shutdown => {
+                        tracing::info!("received ctrl-c or SIGTERM signal, stopping watcher...");
                         break;
                     }
                 };
