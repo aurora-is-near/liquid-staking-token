@@ -1,0 +1,19 @@
+log_level: info
+epoch_id_path: data/epoch_id
+
+client:
+  url: http://producer004.nats.backend.aurora.dev:4300
+  token:
+  stream_name: v2_mainnet_near_blocks
+  connection_window_size: 67108864
+  stream_window_size: 67108864
+  request_timeout: 10
+  connect_timeout: 10
+  buffer_size: 67108864
+  max_message_size: 1073741824
+
+sender:
+  contract_id: lst-pool.near
+  account_id:
+  private_key:
+  method_name: ping
