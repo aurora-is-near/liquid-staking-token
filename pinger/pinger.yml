@@ -3,7 +3,7 @@ epoch_id_path: data/epoch_id
 
 client:
   url: http://producer004.nats.backend.aurora.dev:4300
-  token: <auth_token>
+  token:
   stream_name: v2_mainnet_near_blocks
   connection_window_size: 67108864
   stream_window_size: 67108864
@@ -14,6 +14,6 @@ client:
 
 sender:
   contract_id: lst-pool.near
-  account_id: <signer_account_id>
-  private_key: <signer_private_key>
+  account_id:
+  private_key:
   method_name: ping

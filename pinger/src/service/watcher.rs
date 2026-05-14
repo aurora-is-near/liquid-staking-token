@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::select;
+use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
@@ -48,16 +49,20 @@ impl EpochWatcher {
     pub fn run(mut self) -> JoinHandle<()> {
         tracing::info!("epoch watcher started");
         tokio::spawn(async move {
-            let ctrl_c = tokio::signal::ctrl_c();
-            tokio::pin!(ctrl_c);
+            let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())
+                .expect("failed to set up sigterm handler");
 
             let mut stream: Option<BlocksStream> = None;
 
             loop {
                 let event = select! {
                     event = self.next_event(&mut stream) => event,
-                    _ = &mut ctrl_c => {
+                    _ = tokio::signal::ctrl_c() => {
                         tracing::info!("received ctrl-c signal, stopping watcher...");
+                        break;
+                    }
+                    _ = sigterm.recv() => {
+                        tracing::info!("received sigterm signal, stopping watcher...");
                         break;
                     }
                 };
@@ -105,10 +110,14 @@ impl EpochWatcher {
     async fn handle_event(&mut self, event: Event) {
         match event {
             Event::Block(msg) => {
-                let Ok(current_epoch_id) = current_epoch_id(&msg) else {
-                    tracing::error!("bad block received");
-                    return;
+                let current_epoch_id = match current_epoch_id(&msg) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::error!("bad block received: {e}");
+                        return;
+                    }
                 };
+
                 tracing::debug!("received block from epoch id: {current_epoch_id}");
 
                 if self.epoch_id.is_none_or(|id| id != current_epoch_id) {

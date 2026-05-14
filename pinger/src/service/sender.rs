@@ -20,7 +20,7 @@ pub struct TxSenderConfig {
     /// Account id of the signer of the transaction.
     pub account_id: String,
     /// Private key of the signer of the transaction.
-    pub private_key: String,
+    pub private_key: Option<String>,
     /// Account id of the contract to call.
     pub contract_id: String,
     /// Method name to call.
@@ -39,8 +39,10 @@ pub struct TxSender {
 
 impl TxSender {
     pub fn new(config: &TxSenderConfig, receiver: Receiver<Message>) -> anyhow::Result<Self> {
-        let private_key =
-            std::env::var("PRIVATE_KEY").unwrap_or_else(|_| config.private_key.clone());
+        let private_key = std::env::var("PRIVATE_KEY")
+            .ok()
+            .or_else(|| config.private_key.clone())
+            .ok_or_else(|| anyhow::anyhow!("missing private_key"))?;
         let client = config
             .rpc_url
             .as_ref()
@@ -100,7 +102,7 @@ impl TxSender {
         )
         .await
         .map_err(|_| anyhow::anyhow!("Transaction timed out"))?
-        .map_err(|_| anyhow::anyhow!("Failed to send transaction"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to send transaction: {e}"))?;
 
         anyhow::ensure!(result.is_success(), "Transaction failed: {result:?}");
 
