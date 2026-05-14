@@ -420,6 +420,13 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
 - `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
   active users do not need to call `ping` themselves to get an up-to-date exchange rate.
 
+#### Pinger daemon
+
+An off-chain daemon that calls `ping` once per epoch lives in [`pinger/`](./pinger). It subscribes to a NEAR block
+stream, detects when the `epoch_id` changes, and submits the `ping` transaction with exponential-backoff retries.
+The crate is excluded from the workspace and ships with its own `Dockerfile`; see [`pinger/README.md`](./pinger/README.md)
+for build, configuration, and deployment.
+
 ### `set_protocol_fee_bps` (admin only)
 
 ```bash

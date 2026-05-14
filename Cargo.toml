@@ -11,6 +11,7 @@ members = [
     "tests",
     "tests/test-contracts/ft-receiver",
 ]
+exclude = ["pinger"]
 
 [workspace.dependencies]
 anyhow = "1"
