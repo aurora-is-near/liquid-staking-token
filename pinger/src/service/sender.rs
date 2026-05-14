@@ -1,4 +1,5 @@
 use backon::{ExponentialBuilder, Retryable};
+use near_kit::Gas;
 use serde_json::Value;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
@@ -6,17 +7,28 @@ use tokio::task::JoinHandle;
 use crate::service::message::Message;
 
 const MAX_NONCE_RETRIES: u32 = 5;
-const PING_GAS: near_kit::Gas = near_kit::Gas::from_tgas(50);
+const PING_GAS: Gas = Gas::from_tgas(50);
+const DEFAULT_CHAIN_ID: &str = "mainnet";
 
-#[derive(Debug, Clone, serde::Deserialize)]
+/// Transaction sender configuration.
+#[derive(Clone, serde::Deserialize)]
 pub struct TxSenderConfig {
-    #[serde(default)]
+    /// NEAR node RPC url.
     pub rpc_url: Option<String>,
+    /// NEAR chain id.
+    pub chain_id: Option<String>,
+    /// Account id of the signer of the transaction.
     pub account_id: String,
+    /// Private key of the signer of the transaction.
     pub private_key: String,
+    /// Account id of the contract to call.
     pub contract_id: String,
+    /// Method name to call.
     pub method_name: String,
+    /// Arguments to call the method with.
     pub args: Option<Value>,
+    /// Amount of gas to pay for the transaction.
+    pub gas: Option<Gas>,
 }
 
 pub struct TxSender {
@@ -33,7 +45,7 @@ impl TxSender {
             .rpc_url
             .as_ref()
             .map_or_else(near_kit::Near::mainnet, |url| {
-                near_kit::Near::custom(url, "mainnet")
+                near_kit::Near::custom(url, config.chain_id.as_deref().unwrap_or(DEFAULT_CHAIN_ID))
             })
             .max_nonce_retries(MAX_NONCE_RETRIES)
             .credentials(private_key, &config.account_id)?
@@ -55,7 +67,7 @@ impl TxSender {
                 match msg {
                     Message::EpochChanged => {
                         tracing::info!("epoch has been changed, sending ping...");
-                        let result = (|| self.send_ping_transaction())
+                        let result = (|| self.send_transaction())
                             .retry(back_off)
                             .notify(|err, dur| {
                                 tracing::error!("{err}, retrying after {} sec", dur.as_secs());
@@ -75,19 +87,22 @@ impl TxSender {
         })
     }
 
-    async fn send_ping_transaction(&self) -> anyhow::Result<()> {
-        let result = self
-            .client
-            .call_with_options(
+    async fn send_transaction(&self) -> anyhow::Result<()> {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.client.call_with_options(
                 &self.config.contract_id,
                 &self.config.method_name,
                 &self.config.args,
-                PING_GAS,
+                self.config.gas.unwrap_or(PING_GAS),
                 near_kit::NearToken::ZERO,
-            )
-            .await?;
+            ),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Transaction timed out"))?
+        .map_err(|_| anyhow::anyhow!("Failed to send transaction"))?;
 
-        anyhow::ensure!(result.is_success(), "Ping transaction failed: {result:?}");
+        anyhow::ensure!(result.is_success(), "Transaction failed: {result:?}");
 
         Ok(())
     }

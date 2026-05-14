@@ -6,7 +6,7 @@ pub fn setup(tracing_level: &str) -> anyhow::Result<()> {
             EnvFilter::default().add_directive(
                 format!("{}={}", env!("CARGO_CRATE_NAME"), tracing_level)
                     .parse()
-                    .unwrap(),
+                    .expect("Invalid log level in config"),
             )
         }))
         .finish();

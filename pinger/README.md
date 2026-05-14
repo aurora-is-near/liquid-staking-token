@@ -8,14 +8,19 @@ the contract can recalculate rewards and staked amounts.
 
 - An **epoch watcher** subscribes to a NEAR block stream via
   [`block-client-rs`](https://github.com/aurora-is-near/block-client-rs) and
-  detects when the `epoch_id` in incoming block headers changes.
+  detects when the `epoch_id` in incoming block headers changes. The watcher
+  automatically reconnects with a fixed delay if the stream fails or the
+  initial connection cannot be established, so transient NATS outages do not
+  require a restart.
 - A **tx sender** signs and submits the configured contract call on every
   epoch change, with exponential-backoff retries on transient failures.
 - The last seen `epoch_id` is persisted to disk so the daemon does not re-ping
   on restart within the same epoch.
 
-The two components communicate over an in-process channel; ctrl-c triggers a
-graceful shutdown.
+The two components communicate over an in-process channel. `SIGINT` / `SIGTERM`
+triggers a graceful shutdown that is honored even while the watcher is mid-
+reconnect: the last epoch is flushed to disk and the sender drains before the
+process exits.
 
 ## Build
 
@@ -35,17 +40,19 @@ handles SSH-authenticated dependencies.
 The daemon reads a YAML config file. See [`pinger.yml`](./pinger.yml) for a
 template. Fields:
 
-| Field                | Description                                                            |
-|----------------------|------------------------------------------------------------------------|
-| `log_level`          | Tracing level for crate logs (`trace`, `debug`, `info`, …).            |
-| `epoch_id_path`      | Path to the file used to persist the last seen epoch id.               |
-| `client`             | `block-client-rs` config: NATS `url`, `token`, `stream_name`, buffers. |
-| `sender.rpc_url`     | Optional NEAR RPC URL. Defaults to mainnet.                            |
-| `sender.account_id`  | Signer account id.                                                     |
-| `sender.private_key` | Signer private key (`ed25519:…`). May be overridden by env var.        |
-| `sender.contract_id` | Target liquid-staking-token contract.                                  |
-| `sender.method_name` | Method to invoke on each epoch (typically `ping`).                     |
-| `sender.args`        | Optional JSON args passed to the method.                               |
+| Field                | Description                                                                                                  |
+|----------------------|--------------------------------------------------------------------------------------------------------------|
+| `log_level`          | Tracing level for crate logs (`trace`, `debug`, `info`, …).                                                  |
+| `epoch_id_path`      | Path to the file used to persist the last seen epoch id.                                                     |
+| `client`             | `block-client-rs` config: NATS `url`, `token`, `stream_name`, buffers.                                       |
+| `sender.rpc_url`     | Optional NEAR RPC URL. When omitted, the public mainnet endpoint is used.                                    |
+| `sender.chain_id`    | Optional NEAR chain id (e.g. `mainnet`, `testnet`). Only consulted when `rpc_url` is set. Defaults to `mainnet`. |
+| `sender.account_id`  | Signer account id.                                                                                           |
+| `sender.private_key` | Signer private key (`ed25519:…`). May be overridden by env var.                                              |
+| `sender.contract_id` | Target liquid-staking-token contract.                                                                        |
+| `sender.method_name` | Method to invoke on each epoch (typically `ping`).                                                           |
+| `sender.args`        | Optional JSON args passed to the method.                                                                     |
+| `sender.gas`         | Optional gas budget (in gas units) for the transaction. Defaults to 50 TGas.                                 |
 
 ### Environment overrides
 

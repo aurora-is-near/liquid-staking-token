@@ -1,9 +1,9 @@
-use block_client_rs::stream::read::{BlocksStream, ReadStream};
-use block_client_rs::types::bus_message::payloads::near_block::NEARBlock;
-use block_client_rs::types::bus_message::BusMessage;
-use block_client_rs::types::request::{BlocksRequestBuilder, DeliverySettings, StartPolicy};
-use block_client_rs::types::BlockMessage;
 use block_client_rs::BlockClient;
+use block_client_rs::stream::read::{BlocksStream, ReadStream};
+use block_client_rs::types::BlockMessage;
+use block_client_rs::types::bus_message::BusMessage;
+use block_client_rs::types::bus_message::payloads::near_block::NEARBlock;
+use block_client_rs::types::request::{BlocksRequestBuilder, DeliverySettings, StartPolicy};
 use near_kit::CryptoHash;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -13,11 +13,18 @@ use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use crate::service::message::Message;
 use crate::service::Config;
+use crate::service::message::Message;
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 const RECREATE_STREAM_DELAY: Duration = Duration::from_secs(10);
+
+enum Event {
+    Block(BlockMessage),
+    StreamError,
+    Reconnected,
+    ReconnectFailed,
+}
 
 pub struct EpochWatcher {
     client: BlockClient,
@@ -44,60 +51,90 @@ impl EpochWatcher {
             let ctrl_c = tokio::signal::ctrl_c();
             tokio::pin!(ctrl_c);
 
-            let mut stream = self
-                .create_stream()
-                .await
-                .inspect_err(|e| tracing::error!("Failed to create a stream: {e}"))
-                .unwrap();
+            let mut stream: Option<BlocksStream> = None;
 
             loop {
-                select! {
-                    block = timeout(TIMEOUT, stream.next()) => {
-                        if let Ok(Ok(msg)) = block {
-                             if let Ok(current_epoch_id) = current_epoch_id(&msg) {
-                                 tracing::debug!("received block from epoch id: {current_epoch_id}");
-
-                                 if self.epoch_id.is_none_or(|id| id != current_epoch_id) {
-                                     tracing::info!("epoch change detected: {:?} -> {}", self.epoch_id, current_epoch_id);
-
-                                    let _ = self.sender.send(Message::EpochChanged).await;
-                                     self.epoch_id = Some(current_epoch_id);
-                                     self.save_epoch_id(current_epoch_id).await;
-
-                                 }
-                             } else {
-                                 tracing::error!("bad block received");
-                             }
-
-                         } else {
-                             tracing::error!("error receiving block, recreating stream...");
-                             loop {
-                                 match self.create_stream().await {
-                                     Ok(s) => {
-                                         stream = s;
-                                         break;
-                                     }
-                                     Err(err) => {
-                                          tracing::error!("{err}, retrying after {} sec", RECREATE_STREAM_DELAY.as_secs());
-                                          tokio::time::sleep(RECREATE_STREAM_DELAY).await;
-                                      }
-                                 }
-                             }
-                         }
-                    }
+                let event = select! {
+                    event = self.next_event(&mut stream) => event,
                     _ = &mut ctrl_c => {
                         tracing::info!("received ctrl-c signal, stopping watcher...");
-                        if let Some(epoch_id) = self.epoch_id {
-                            self.save_epoch_id(epoch_id).await;
-                        }
-
-                        let _ = self.sender.send(Message::Shutdown).await;
-
                         break;
                     }
-                }
+                };
+                self.handle_event(event).await;
+            }
+
+            if let Some(epoch_id) = self.epoch_id {
+                self.save_epoch_id(epoch_id).await;
+            }
+
+            if self.sender.send(Message::Shutdown).await.is_err() {
+                tracing::warn!("failed to send shutdown message; receiver already dropped");
             }
         })
+    }
+
+    async fn next_event(&mut self, stream: &mut Option<BlocksStream>) -> Event {
+        match stream {
+            Some(s) => {
+                if let Ok(Ok(msg)) = timeout(TIMEOUT, s.next()).await {
+                    Event::Block(msg)
+                } else {
+                    *stream = None;
+                    Event::StreamError
+                }
+            }
+            None => match self.create_stream().await {
+                Ok(s) => {
+                    *stream = Some(s);
+                    Event::Reconnected
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "failed to recreate stream: {err}, retrying after {} sec",
+                        RECREATE_STREAM_DELAY.as_secs()
+                    );
+                    tokio::time::sleep(RECREATE_STREAM_DELAY).await;
+                    Event::ReconnectFailed
+                }
+            },
+        }
+    }
+
+    #[allow(clippy::cognitive_complexity)]
+    async fn handle_event(&mut self, event: Event) {
+        match event {
+            Event::Block(msg) => {
+                let Ok(current_epoch_id) = current_epoch_id(&msg) else {
+                    tracing::error!("bad block received");
+                    return;
+                };
+                tracing::debug!("received block from epoch id: {current_epoch_id}");
+
+                if self.epoch_id.is_none_or(|id| id != current_epoch_id) {
+                    tracing::info!(
+                        "epoch change detected: {:?} -> {current_epoch_id}",
+                        self.epoch_id
+                    );
+
+                    if self.sender.send(Message::EpochChanged).await.is_err() {
+                        tracing::error!(
+                            "failed to send epoch change notification; receiver dropped"
+                        );
+                    }
+
+                    self.epoch_id = Some(current_epoch_id);
+                    self.save_epoch_id(current_epoch_id).await;
+                }
+            }
+            Event::StreamError => {
+                tracing::error!("error receiving block, will reconnect");
+            }
+            Event::Reconnected => {
+                tracing::info!("stream reconnected");
+            }
+            Event::ReconnectFailed => {}
+        }
     }
 
     async fn create_stream(&mut self) -> anyhow::Result<BlocksStream> {

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::service::sender::TxSenderConfig;
 
 /// Service config
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct Config {
     /// Block client config.
     pub client: block_client_rs::Config,
