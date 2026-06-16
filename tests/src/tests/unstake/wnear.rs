@@ -10,7 +10,9 @@ use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::wnear::WNear;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
-use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
+use crate::tests::{
+    ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, advance_to_epoch, stake_message, unstake_message,
+};
 
 const STORAGE_DEPOSIT_EXCEEDS_WITHDRAWAL_ERROR: &str =
     "Storage deposit exceeds the withdrawal amount";
@@ -249,6 +251,8 @@ async fn test_unstake_by_sending_lst_from_wnear() -> TestResult {
 
 #[tokio::test]
 async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
+    const TWO_YOCTO: NearToken = NearToken::from_yoctonear(2);
+
     let env = Env::builder().build().await?;
     let alice = env.alice();
 
@@ -277,12 +281,16 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
             min_gas: None,
         },
     );
+
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;
     env.lst
         .ft_transfer_call(alice, env.lst.id(), half_stake_amount, &unstake_message)
         .await?;
+
+    let unstake_epoch = env.epoch_height(None).await?;
+    advance_to_epoch(&env, unstake_epoch + 1).await?;
 
     env.lst.ping().await?;
 
@@ -291,11 +299,11 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
         env.lst.get_total_balance().await?,
         INIT_BALANCE
             .saturating_add(STAKE_AMOUNT)
-            .saturating_add(ONE_YOCTO)
+            .saturating_add(TWO_YOCTO) // ft_transfer_call + ft_transfer_call
     );
     assert_eq!(
         env.lst.get_total_staked_balance().await?,
-        INIT_LOCK.saturating_add(ONE_YOCTO)
+        INIT_LOCK.saturating_add(TWO_YOCTO) // ft_transfer_call + ft_transfer_call
     );
 
     env.wait_unstake_cooldown().await?;
@@ -308,12 +316,24 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     );
     assert_eq!(
         env.lst.get_total_balance().await?,
-        INIT_BALANCE.saturating_add(ONE_YOCTO)
+        INIT_BALANCE.saturating_add(TWO_YOCTO) // ft_transfer_call + ft_transfer_call
     );
 
     assert_eq!(
-        alice.near_balance().await?.total.as_millinear() + 1,
-        INIT_BALANCE.saturating_sub(STAKE_AMOUNT).as_millinear()
+        env.lst.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(INIT_LOCK)
+            .saturating_sub(ONE_YOCTO) // withdraw makes a ft_transfer_call which requires attaching 1 yocto
+    );
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(TWO_YOCTO) // ft_transfer_call + ft_transfer_call
+    );
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INIT_BALANCE
+            .saturating_sub(STAKE_AMOUNT)
+            .saturating_sub(ONE_YOCTO.saturating_mul(3)) // add_public_key + ft_transfer_call + ft_transfer_call
     );
     let intents_balance = env
         .intents

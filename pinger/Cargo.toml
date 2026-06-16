@@ -1,25 +1,24 @@
 [package]
 name = "liquid-staking-token-pinger"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "A tool to recalculate rewards and staking number of liquid staking token contracts by sending transactions to them once at an epoch"
-repository = "https://github.com/aurora-is-near/liquid-staking-token"
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]
-anyhow = "1"
+anyhow.workspace = true
 backon = "1"
 block-client-rs = { git = "https://github.com/aurora-is-near/block-client-rs", rev = "f1cf3cc" }
 clap = { version = "4", features = ["derive"] }
-near-kit = "0.9"
+near-kit = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
-[lints.clippy]
-all = { level = "deny", priority = -1 }
-nursery = { level = "deny", priority = -1 }
-pedantic = { level = "deny", priority = -1 }
+[lints]
+workspace = true

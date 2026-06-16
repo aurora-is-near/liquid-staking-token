@@ -23,6 +23,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
       - name: Run cargo clippy
@@ -32,7 +36,7 @@ jobs:
 
   tests:
     name: Tests
-    runs-on: runs-on=${{ github.run_id }}/family=c6a.8xlarge/image=ubuntu24-full-x64/disk=large/extras=s3-cache
+    runs-on: runs-on=${{ github.run_id }}/family=c6a.8xlarge/image=ubuntu24-full-x64/volume=100gb/extras=s3-cache
     container: rust:latest
     steps:
       - name: Setup RunsOn
@@ -44,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y libudev-dev
+          apt-get install -y libudev-dev libclang-dev protobuf-compiler
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:

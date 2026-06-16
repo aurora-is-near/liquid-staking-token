@@ -568,7 +568,7 @@ async fn test_stake_with_attempt_to_get_shared_tokens_on_contract() -> TestResul
     Ok(())
 }
 
-#[ignore]
+#[ignore = "After making a stake with a wrong public key, a validator stops being a validator and stops producing blocks"]
 #[tokio::test]
 async fn test_stake_native_with_using_wrong_validator_public_key() -> TestResult {
     let env = Env::builder().build().await?;
