@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.88.0-bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /app
 
@@ -33,13 +33,14 @@ RUN PROTOC_ZIP="protoc-${PROTOC_VERSION}-linux-x86_64.zip" \
 # Copy manifests and lock file first for better layer caching
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 
-# Tell Cargo to use the git CLI for fetching (needed for SSH deps)
-COPY .cargo/config.toml .cargo/config.toml
+# Copy workspace members so Cargo can load the workspace while building pinger.
+COPY contract ./contract
+COPY tests ./tests
 
 # Copy source code
-COPY src/ src/
+COPY pinger ./pinger
 
-RUN cargo build --release
+RUN cargo build -p liquid-staking-token-pinger --release
 
 # ---- Runtime Stage ----
 FROM debian:bookworm-slim
@@ -62,7 +63,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/liquid-staking-token-pinger /app/liquid-staking-token-pinger
 
 # Copy the default config. Operators can override by bind-mounting their own file at /app/pinger.yml.
-COPY pinger.yml /app/pinger.yml
+COPY pinger/pinger.yml /app/pinger.yml
 
 # Change ownership and switch user
 RUN chown -R pinger:pinger /app

@@ -363,7 +363,7 @@ pub struct Tranche {
     pub wnear_residual: NearToken,
     /// Set after a previous attempt successfully paid `storage_deposit` to
     /// register the receiver on the wNEAR contract. Subsequent retries skip
-    /// the storage_deposit step.
+    /// the `storage_deposit` step.
     pub storage_was_paid: bool,
 }
 

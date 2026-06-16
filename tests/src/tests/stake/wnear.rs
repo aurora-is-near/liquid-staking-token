@@ -1061,7 +1061,7 @@ async fn test_stake_wnear_and_sending_lst_tokens_to_lst_contract_with_random_msg
     Ok(())
 }
 
-#[ignore]
+#[ignore = "After making a stake with a wrong public key, a validator stops being a validator and stops producing blocks"]
 #[tokio::test]
 async fn test_stake_wnear_with_using_wrong_validator_public_key() -> TestResult {
     let env = Env::builder().build().await?;

@@ -130,49 +130,43 @@ impl LiquidStakingToken {
         args: StakeMessage,
         deposit_token: DepositToken,
     ) -> PromiseOrValue<U128> {
-        match env::promise_result_checked(0, 0) {
-            Ok(_) => {
-                // Check if the receiver is still registered. Return 0 if not.
-                if !self.is_registered(&args.receiver_id) {
-                    return PromiseOrValue::Value(0.into());
-                }
-
-                // Move minted LST tokens from the contract account id to the receiver account id.
-                self.internal_transfer(&env::current_account_id(), &args.receiver_id, lst_amount);
-
-                // At this point we already staked deposited tokens; therefore, any refund
-                // happens via unstake with cooldown period only.
-                if let Some(msg) = &args.msg {
-                    let min_gas = calculate_min_gas(args.min_gas, true);
-
-                    ext_ft_receiver::ext(args.receiver_id.clone())
-                        .with_static_gas(min_gas)
-                        .with_unused_gas_weight(1)
-                        .ft_on_transfer(sender_id, lst_amount.as_yoctonear().into(), msg.to_owned())
-                        .then(
-                            Self::ext(env::current_account_id())
-                                .with_static_gas(ON_FT_ON_TRANSFER_GAS)
-                                .with_unused_gas_weight(0)
-                                .on_ft_on_transfer(lst_amount, args),
-                        )
-                        .into()
-                } else {
-                    PromiseOrValue::Value(U128(0))
-                }
+        if env::promise_result_checked(0, 0).is_ok() {
+            // Check if the receiver is still registered. Return 0 if not.
+            if !self.is_registered(&args.receiver_id) {
+                return PromiseOrValue::Value(0.into());
             }
-            // Reachable when the underlying `stake` action fails (e.g. validator key retired).
-            // State mutations from `modify_state_before_stake` are rolled back, and the deposit
-            // is refunded — natively for native staking, or by re-wrapping for wNEAR staking.
-            Err(_) => {
-                // Rollback state changes:
-                self.rollback_state_after_stake(&sender_id, stake_amount, lst_amount);
 
-                if matches!(deposit_token, DepositToken::Native) {
-                    Promise::new(sender_id).transfer(stake_amount).into()
-                } else {
-                    near_sdk::log!("Error while staking refund wNEAR");
-                    self.refund_wnear_promise(stake_amount).into()
-                }
+            // Move minted LST tokens from the contract account id to the receiver account id.
+            self.internal_transfer(&env::current_account_id(), &args.receiver_id, lst_amount);
+
+            // At this point we already staked deposited tokens; therefore, any refund
+            // happens via unstake with cooldown period only.
+            if let Some(msg) = &args.msg {
+                let min_gas = calculate_min_gas(args.min_gas, true);
+
+                ext_ft_receiver::ext(args.receiver_id.clone())
+                    .with_static_gas(min_gas)
+                    .with_unused_gas_weight(1)
+                    .ft_on_transfer(sender_id, lst_amount.as_yoctonear().into(), msg.to_owned())
+                    .then(
+                        Self::ext(env::current_account_id())
+                            .with_static_gas(ON_FT_ON_TRANSFER_GAS)
+                            .with_unused_gas_weight(0)
+                            .on_ft_on_transfer(lst_amount, args),
+                    )
+                    .into()
+            } else {
+                PromiseOrValue::Value(U128(0))
+            }
+        } else {
+            // Rollback state changes:
+            self.rollback_state_after_stake(&sender_id, stake_amount, lst_amount);
+
+            if matches!(deposit_token, DepositToken::Native) {
+                Promise::new(sender_id).transfer(stake_amount).into()
+            } else {
+                near_sdk::log!("Error while staking refund wNEAR");
+                self.refund_wnear_promise(stake_amount).into()
             }
         }
     }

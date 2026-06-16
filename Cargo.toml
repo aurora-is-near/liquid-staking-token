@@ -1,17 +1,17 @@
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.86"
+rust-version = "1.93.0"
 repository = "https://github.com/aurora-is-near/liquid-staking-token"
 
 [workspace]
 resolver = "3"
 members = [
     "contract",
+    "pinger",
     "tests",
     "tests/test-contracts/ft-receiver",
 ]
-exclude = ["pinger"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -21,7 +21,7 @@ defuse-near-utils = { git = "https://github.com/near/intents", tag = "defuse/v0.
 near-api = "0.8"
 near-contract-standards = "5"
 near-plugins = "0.5"
-near-sandbox = { git = "https://github.com/aleksuss/near-sandbox-rs.git", rev = "f48b497" }
+near-sandbox = { git = "https://github.com/aleksuss/near-sandbox-rs.git", rev = "a3e86f4" }
 near-sdk = { version = "5", features = ["deterministic-account-ids"] }
 num-traits = "0.2"
 rand = "0.10"

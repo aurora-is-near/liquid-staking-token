@@ -175,7 +175,7 @@ impl Env {
     }
 
     pub async fn epoch_height(&self, block_height: Option<u64>) -> anyhow::Result<u64> {
-        tokio_retry::Retry::spawn(retry_strategy(), || async {
+        tokio_retry::Retry::start(retry_strategy(), || async {
             near_api::Staking::epoch_validators_info()
                 .at(block_height.map_or(
                     near_api::EpochReference::Latest,
@@ -190,7 +190,7 @@ impl Env {
     }
 
     pub async fn block_height(&self) -> anyhow::Result<u64> {
-        tokio_retry::Retry::spawn(retry_strategy(), || async {
+        tokio_retry::Retry::start(retry_strategy(), || async {
             near_api::Chain::block_number()
                 .fetch_from(&self.config)
                 .await
