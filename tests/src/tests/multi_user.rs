@@ -7,7 +7,10 @@ use crate::env::native::Native;
 use crate::env::pool::StakingPool;
 use crate::env::types::Account;
 use crate::env::{Env, INIT_BALANCE, INIT_LOCK};
-use crate::tests::{ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, stake_message, unstake_message};
+use crate::tests::{
+    ONE_YOCTO, STAKE_AMOUNT, ZERO_AMOUNT, advance_to_epoch, advance_until_available, stake_message,
+    unstake_message,
+};
 
 async fn stake_in_same_block(
     env: &Env,
@@ -92,7 +95,7 @@ async fn partial_unstake_in_same_block(
 }
 
 /// Alice and Bob stake independently, unstake with different messages (different
-/// receiver_ids produce different queue keys), and each withdraws their own funds
+/// `receiver_ids` produce different queue keys), and each withdraws their own funds
 /// without interfering with the other.
 #[tokio::test]
 async fn test_two_users_stake_and_unstake_independently() -> TestResult {
@@ -652,6 +655,82 @@ async fn test_stake_native_near_by_alice_and_withdraw_when_bob_stakes() -> TestR
             .total
             .saturating_sub(ONE_YOCTO)
             .saturating_sub(ONE_YOCTO)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_net_stake_up_during_unbonding_window_does_not_strand_withdrawal() -> TestResult {
+    let env = Env::builder()
+        .with_initial_balance(INIT_LOCK.saturating_add(NearToken::from_near(1)))
+        .build()
+        .await?;
+    let alice = env.alice();
+    let bob = env.bob();
+
+    // Net-positive: Bob will stake 3x what Alice unstakes.
+    let bob_stake = STAKE_AMOUNT.saturating_mul(3);
+
+    env.lst
+        .stake(
+            alice,
+            STAKE_AMOUNT,
+            stake_message(alice.id(), false, None::<&str>),
+        )
+        .await?;
+
+    let staked_epoch = env.epoch_height(None).await?;
+    advance_to_epoch(&env, staked_epoch + 1).await?;
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        INIT_LOCK.saturating_add(STAKE_AMOUNT)
+    );
+
+    // Epoch E: Alice unstakes everything.
+    let alice_unstake_msg = unstake_message(alice.id(), &WithdrawTokens::Native);
+    env.lst
+        .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, &alice_unstake_msg)
+        .await?;
+    let unstake_epoch = env.epoch_height(None).await?;
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, STAKE_AMOUNT);
+
+    // Epoch E+1: still inside the unbonding window — Bob stakes MORE than Alice
+    // unstaked, lifting total stake above the pre-unstake level.
+    advance_to_epoch(&env, unstake_epoch + 1).await?;
+    env.lst
+        .stake(bob, bob_stake, stake_message(bob.id(), false, None::<&str>))
+        .await?;
+    assert_eq!(
+        env.lst.get_total_staked_balance().await?.as_near(),
+        INIT_LOCK.saturating_add(bob_stake).as_near()
+    );
+
+    // Withdraw at the contract's first declared maturity for Alice's tranche.
+    advance_until_available(&env, &alice_unstake_msg).await?;
+    env.lst.withdraw(alice, &alice_unstake_msg).await?;
+
+    // Decisive: the interleaved stake-up must NOT strand Alice. If the funds were
+    // re-locked with no offsetting liquid, the `transfer` in `on_withdraw_native`
+    // would fail silently (the outer tx still "succeeds"), `pending_withdrawals`
+    // would stay at STAKE_AMOUNT, and Alice would be short ~1000 N.
+    assert_eq!(
+        env.lst.get_total_pending_withdrawals().await?,
+        ZERO_AMOUNT,
+        "Claim not settled — interleaved stake-up appears to have stranded the withdrawal"
+    );
+    assert_eq!(
+        alice.near_balance().await?.total,
+        INIT_BALANCE.saturating_sub(ONE_YOCTO.saturating_mul(2)),
+        "Alice not paid at declared maturity after a net-positive stake during her unbonding window"
+    );
+
+    // The pool must still be staked exactly as much as it claims — i.e., Alice's
+    // payout did not cannibalize the active stake.
+    assert_eq!(
+        env.lst.near_balance().await?.locked,
+        env.lst.get_total_staked_balance().await?,
+        "Locked balance diverged from total_staked — withdrawal drew from staked funds"
     );
 
     Ok(())

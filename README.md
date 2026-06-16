@@ -424,7 +424,7 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
 
 An off-chain daemon that calls `ping` once per epoch lives in [`pinger/`](./pinger). It subscribes to a NEAR block
 stream, detects when the `epoch_id` changes, and submits the `ping` transaction with exponential-backoff retries.
-The crate is excluded from the workspace and ships with its own `Dockerfile`; see [`pinger/README.md`](./pinger/README.md)
+The crate is a workspace member and ships with its own `Dockerfile`; see [`pinger/README.md`](./pinger/README.md)
 for build, configuration, and deployment.
 
 ### `set_protocol_fee_bps` (admin only)

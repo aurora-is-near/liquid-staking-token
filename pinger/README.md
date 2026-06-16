@@ -24,14 +24,15 @@ process exits.
 
 ## Build
 
-The crate is excluded from the workspace, so build it from this directory:
+The crate is a workspace member. Build it by package — from this directory so
+its local `.cargo/config.toml` is picked up:
 
 ```sh
 cd pinger
-cargo build --release
+cargo build -p liquid-staking-token-pinger --release
 ```
 
-The toolchain is pinned via `rust-toolchain.toml` (Rust 1.88).
+The toolchain is pinned via the workspace `rust-toolchain.toml` (Rust 1.93).
 `.cargo/config.toml` sets `git-fetch-with-cli = true` so the system Git
 handles SSH-authenticated dependencies.
 
@@ -40,19 +41,19 @@ handles SSH-authenticated dependencies.
 The daemon reads a YAML config file. See [`pinger.yml`](./pinger.yml) for a
 template. Fields:
 
-| Field                | Description                                                                                                  |
-|----------------------|--------------------------------------------------------------------------------------------------------------|
-| `log_level`          | Tracing level for crate logs (`trace`, `debug`, `info`, …).                                                  |
-| `epoch_id_path`      | Path to the file used to persist the last seen epoch id.                                                     |
-| `client`             | `block-client-rs` config: NATS `url`, `token`, `stream_name`, buffers.                                       |
-| `sender.rpc_url`     | Optional NEAR RPC URL. When omitted, the public mainnet endpoint is used.                                    |
+| Field                | Description                                                                                                      |
+|----------------------|------------------------------------------------------------------------------------------------------------------|
+| `log_level`          | Tracing level for crate logs (`trace`, `debug`, `info`, …).                                                      |
+| `epoch_id_path`      | Path to the file used to persist the last seen epoch id.                                                         |
+| `client`             | `block-client-rs` config: NATS `url`, `token`, `stream_name`, buffers.                                           |
+| `sender.rpc_url`     | Optional NEAR RPC URL. When omitted, the public mainnet endpoint is used.                                        |
 | `sender.chain_id`    | Optional NEAR chain id (e.g. `mainnet`, `testnet`). Only consulted when `rpc_url` is set. Defaults to `mainnet`. |
-| `sender.account_id`  | Signer account id.                                                                                           |
-| `sender.private_key` | Signer private key (`ed25519:…`). May be overridden by env var.                                              |
-| `sender.contract_id` | Target liquid-staking-token contract.                                                                        |
-| `sender.method_name` | Method to invoke on each epoch (typically `ping`).                                                           |
-| `sender.args`        | Optional JSON args passed to the method.                                                                     |
-| `sender.gas`         | Optional gas budget (in gas units) for the transaction. Defaults to 50 TGas.                                 |
+| `sender.account_id`  | Signer account id.                                                                                               |
+| `sender.private_key` | Signer private key (`ed25519:…`). May be overridden by env var.                                                  |
+| `sender.contract_id` | Target liquid-staking-token contract.                                                                            |
+| `sender.method_name` | Method to invoke on each epoch (typically `ping`).                                                               |
+| `sender.args`        | Optional JSON args passed to the method.                                                                         |
+| `sender.gas`         | Optional gas budget (in gas units) for the transaction. Defaults to 50 TGas.                                     |
 
 ### Environment overrides
 
@@ -74,7 +75,7 @@ overwritten thereafter.
 Build and run the image from this directory:
 
 ```sh
-docker build -t lst-pinger .
+docker build -t lst-pinger -f pinger/Dockerfile .
 docker run -d \
     --restart unless-stopped \
     -e PRIVATE_KEY=ed25519:... \
