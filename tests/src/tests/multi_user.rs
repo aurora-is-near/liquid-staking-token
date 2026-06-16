@@ -148,10 +148,11 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
 
     env.wait_unstake_cooldown().await?;
+    env.lst.ping().await?;
 
     assert_eq!(
         env.lst.near_balance().await?.locked,
-        INIT_LOCK.saturating_add(ONE_YOCTO)
+        INIT_LOCK.saturating_add(ONE_YOCTO.saturating_mul(2))
     );
 
     // Each user withdraws their own entry independently.
@@ -163,14 +164,14 @@ async fn test_two_users_stake_and_unstake_independently() -> TestResult {
             .near_balance()
             .await?
             .total
-            .saturating_add(NearToken::from_yoctonear(2)),
+            .saturating_add(ONE_YOCTO.saturating_mul(2)),
         INIT_BALANCE
     );
     assert_eq!(
         bob.near_balance()
             .await?
             .total
-            .saturating_add(NearToken::from_yoctonear(2)),
+            .saturating_add(ONE_YOCTO.saturating_mul(2)),
         INIT_BALANCE
     );
 
@@ -703,7 +704,9 @@ async fn test_net_stake_up_during_unbonding_window_does_not_strand_withdrawal() 
         .await?;
     assert_eq!(
         env.lst.get_total_staked_balance().await?,
-        INIT_LOCK.saturating_add(bob_stake)
+        INIT_LOCK
+            .saturating_add(bob_stake)
+            .saturating_add(ONE_YOCTO)
     );
 
     // Withdraw at the contract's first declared maturity for Alice's tranche.
