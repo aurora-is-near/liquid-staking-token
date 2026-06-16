@@ -702,8 +702,8 @@ async fn test_net_stake_up_during_unbonding_window_does_not_strand_withdrawal() 
         .stake(bob, bob_stake, stake_message(bob.id(), false, None::<&str>))
         .await?;
     assert_eq!(
-        env.lst.get_total_staked_balance().await?.as_near(),
-        INIT_LOCK.saturating_add(bob_stake).as_near()
+        env.lst.get_total_staked_balance().await?,
+        INIT_LOCK.saturating_add(bob_stake)
     );
 
     // Withdraw at the contract's first declared maturity for Alice's tranche.
