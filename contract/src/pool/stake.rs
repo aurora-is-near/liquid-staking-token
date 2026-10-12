@@ -241,9 +241,9 @@ impl LiquidStakingToken {
             // we don't need to roll back state changes.
             if matches!(deposit_token, DepositToken::Native) {
                 env::panic_str("Failed to update state before staking");
-            } else {
-                self.refund_wnear_promise(deposit_amount)
             }
+
+            self.refund_wnear_promise(deposit_amount)
         }
     }
 }

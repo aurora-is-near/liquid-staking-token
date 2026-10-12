@@ -1,8 +1,6 @@
 use block_client_rs::BlockClient;
 use block_client_rs::stream::read::{BlocksStream, ReadStream};
 use block_client_rs::types::BlockMessage;
-use block_client_rs::types::bus_message::BusMessage;
-use block_client_rs::types::bus_message::payloads::near_block::NEARBlock;
 use block_client_rs::types::request::{BlocksRequestBuilder, DeliverySettings, StartPolicy};
 use near_kit::CryptoHash;
 use std::path::{Path, PathBuf};
@@ -15,8 +13,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use crate::service::Config;
-use crate::service::message::Message;
+use crate::service::{Config, block::NEARBlock, message::Message};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 const RECREATE_STREAM_DELAY: Duration = Duration::from_secs(10);
@@ -87,7 +84,7 @@ impl EpochWatcher {
             }
 
             if self.sender.send(Message::Shutdown).await.is_err() {
-                tracing::warn!("failed to send shutdown message; receiver already dropped");
+                tracing::warn!("failed to send a shutdown message; receiver already dropped");
             }
         })
     }
@@ -180,8 +177,8 @@ impl EpochWatcher {
 }
 
 fn current_epoch_id(msg: &BlockMessage) -> anyhow::Result<CryptoHash> {
-    BusMessage::<NEARBlock>::deserialize(&msg.payload)
-        .map(|msg| CryptoHash::from_bytes(msg.payload.block.header.epoch_id.0))
+    aurora_refiner_types::bus_message::BusMessage::<NEARBlock>::deserialize(&msg.payload)
+        .map(|msg| msg.payload.block.header.epoch_id)
         .map_err(Into::into)
 }
 
@@ -189,4 +186,19 @@ fn load_epoch_id<P: AsRef<Path>>(path: P) -> Option<CryptoHash> {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|id| CryptoHash::from_str(&id).ok())
+}
+
+#[test]
+fn test_read_block() {
+    let payload = include_bytes!("res/block_219671771.cbor.bin").to_vec();
+    let msg = BlockMessage {
+        height: 219_671_771,
+        payload,
+        format: block_client_rs::types::BlockPayloadFormat::NearBlockV2,
+    };
+
+    assert_eq!(
+        current_epoch_id(&msg).unwrap().to_string(),
+        "D87ECZKHAn4RcSmhBfjCHqqfUq2krLKzjnLgWKsFqFSf"
+    );
 }
