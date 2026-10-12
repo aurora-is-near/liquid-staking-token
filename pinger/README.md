@@ -8,10 +8,13 @@ the contract can recalculate rewards and staked amounts.
 
 - An **epoch watcher** subscribes to a NEAR block stream via
   [`block-client-rs`](https://github.com/aurora-is-near/block-client-rs) and
-  detects when the `epoch_id` in incoming block headers changes. The watcher
-  automatically reconnects with a fixed delay if the stream fails or the
-  initial connection cannot be established, so transient NATS outages do not
-  require a restart.
+  detects when the `epoch_id` in incoming block headers changes. It decodes
+  only `block.header.epoch_id` from the compressed NEAR block payload,
+  ignoring other fields so unrelated block schema changes do not affect
+  epoch detection. Blocks that cannot be decoded are logged and skipped.
+  The watcher automatically reconnects if the stream fails or no block
+  arrives within 20 seconds; failed connection attempts are retried after
+  10 seconds.
 - A **tx sender** signs and submits the configured contract call on every
   epoch change, with exponential-backoff retries on transient failures.
 - The last seen `epoch_id` is persisted to disk so the daemon does not re-ping
@@ -24,17 +27,18 @@ process exits.
 
 ## Build
 
-The crate is a workspace member. Build it by package — from this directory so
-its local `.cargo/config.toml` is picked up:
+The crate is a workspace member. From the repository root, enter `pinger/`
+and build it by package so its local `.cargo/config.toml` is picked up:
 
 ```sh
 cd pinger
 cargo build -p liquid-staking-token-pinger --release
 ```
 
-The toolchain is pinned via the workspace `rust-toolchain.toml` (Rust 1.93).
+The toolchain is pinned via the workspace `rust-toolchain.toml` (Rust 1.95.0).
 `.cargo/config.toml` sets `git-fetch-with-cli = true` so the system Git
-handles SSH-authenticated dependencies.
+handles Git dependencies. The binary is written to the workspace's
+`target/release/` directory.
 
 ## Configuration
 
@@ -63,29 +67,39 @@ template. Fields:
 
 ## Run
 
+Set `sender.account_id` in the config and provide the signer private key via
+`PRIVATE_KEY` or `sender.private_key`. Run from `pinger/` after building:
+
 ```sh
-./target/release/liquid-staking-token-pinger -c ./pinger.yml
+mkdir -p data
+../target/release/liquid-staking-token-pinger -c ./pinger.yml
 ```
 
-The state file at `epoch_id_path` is created on the first epoch change and
-overwritten thereafter.
+Relative paths, including `epoch_id_path`, are resolved against the process's
+working directory. The state file is created when the first block's epoch
+differs from the saved epoch (or no valid saved epoch exists), and overwritten
+on subsequent epoch changes. Its parent directory must already exist and be
+writable. The file records the last observed epoch, without waiting for the
+ping transaction to succeed.
 
 ## Docker
 
-Build and run the image from this directory:
+Build and run the image from the repository root:
 
 ```sh
-docker build -t lst-pinger -f pinger/Dockerfile .
+docker build -t liquid-staking-token-pinger -f pinger/Dockerfile .
+mkdir -p data
 docker run -d \
     --restart unless-stopped \
     -e PRIVATE_KEY=ed25519:... \
-    -v "$(pwd)/pinger.yml:/app/pinger.yml" \
+    -v "$(pwd)/pinger/pinger.yml:/app/pinger.yml:ro" \
     -v "$(pwd)/data:/app/data" \
-    lst-pinger
+    liquid-staking-token-pinger
 ```
 
 - The default config is baked in at `/app/pinger.yml`. Override it by
   bind-mounting your own file at the same path.
 - `/app/data` is declared as a volume; the persisted epoch id lives there
   (`epoch_id_path: data/epoch_id` in the default config, resolved against
-  the container's `/app` working directory).
+  the container's `/app` working directory). Ensure the host `data/` directory
+  is writable by the container's non-root `pinger` user.
