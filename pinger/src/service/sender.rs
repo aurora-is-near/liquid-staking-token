@@ -92,13 +92,11 @@ impl TxSender {
     async fn send_transaction(&self) -> anyhow::Result<()> {
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            self.client.call_with_options(
-                &self.config.contract_id,
-                &self.config.method_name,
-                &self.config.args,
-                self.config.gas.unwrap_or(PING_GAS),
-                near_kit::NearToken::ZERO,
-            ),
+            self.client
+                .call(&self.config.contract_id, &self.config.method_name)
+                .args(&self.config.args)
+                .gas(self.config.gas.unwrap_or(PING_GAS))
+                .deposit(near_kit::NearToken::ZERO),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Transaction timed out"))?

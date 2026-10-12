@@ -3,6 +3,7 @@ use crate::service::watcher::EpochWatcher;
 
 pub use config::Config;
 
+mod block;
 mod config;
 mod message;
 mod sender;

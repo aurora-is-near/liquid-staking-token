@@ -1,6 +1,6 @@
 [package]
 name = "liquid-staking-token-pinger"
-version = "0.1.0"
+version = "0.1.2"
 edition.workspace = true
 rust-version.workspace = true
 description = "A tool to recalculate rewards and staking number of liquid staking token contracts by sending transactions to them once at an epoch"
@@ -9,11 +9,13 @@ readme = "README.md"
 
 [dependencies]
 anyhow.workspace = true
+aurora-refiner-types = { git = "https://github.com/aurora-is-near/borealis-engine-lib", rev = "1e75520" }
 backon = "1"
-block-client-rs = { git = "https://github.com/aurora-is-near/block-client-rs", rev = "f1cf3cc" }
+block-client-rs = { git = "https://github.com/aurora-is-near/block-client-rs", tag = "0.1.5" }
 clap = { version = "4", features = ["derive"] }
-near-kit = "0.11"
+near-kit = "0.18"
 serde = { version = "1", features = ["derive"] }
+serde_cbor = "0.11"
 serde_json = "1"
 serde_yaml = "0.9"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
