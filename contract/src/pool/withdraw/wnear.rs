@@ -1,9 +1,9 @@
 use near_contract_standards::fungible_token::core::ext_ft_core;
 use near_contract_standards::storage_management::ext_storage_management;
 use near_sdk::json_types::U128;
-use near_sdk::{CryptoHash, NearToken, Promise, env, near, require};
+use near_sdk::{CryptoHash, NearToken, Promise, PromiseError, env, near, require};
 
-use crate::pool::withdraw::{ON_WITHDRAW_WNEAR_GAS, REMOVE_LOCK_GAS};
+use crate::pool::withdraw::ON_WITHDRAW_WNEAR_GAS;
 use crate::pool::{
     MAX_RESULT_LENGTH, STORAGE_DEPOSIT_GAS, UnstakeMessage, WithdrawTokens, calculate_min_gas,
 };
@@ -49,10 +49,19 @@ impl LiquidStakingToken {
                     amount_to_send
                 }
             }
-            // We ignore errors from `ft_transfer_call`s because of the NEP-141 issue.
-            Err(e) if is_call => {
-                near_sdk::log!("Error received from the ft_transfer_call: {e}");
-                amount_to_send
+            Err(PromiseError::Failed) => {
+                if is_call {
+                    near_sdk::log!(
+                        "Error received from the ft_transfer_call. The withdrawal considered fully consumed"
+                    );
+                    amount_to_send
+                } else {
+                    near_sdk::log!(
+                        "Error received from the ft_transfer. The withdrawal remains retryable"
+                    );
+                    self.withdrawal_requests.release_lock(&hash);
+                    return;
+                }
             }
             Err(_) => env::panic_str("Error occurred while making withdrawal"),
         };
@@ -64,6 +73,8 @@ impl LiquidStakingToken {
             consumed,
             storage_to_pay,
         );
+        // A partial refund becomes retryable only when its accounting commits.
+        self.withdrawal_requests.release_lock(&hash);
     }
 }
 
@@ -187,24 +198,18 @@ impl LiquidStakingToken {
             )
         });
 
-        promise
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .with_static_gas(ON_WITHDRAW_WNEAR_GAS)
-                    .on_withdraw_wnear(
-                        hash,
-                        amount_to_send,
-                        near_deposit_and_transfer_cost,
-                        storage_to_pay,
-                        is_call,
-                    ),
-            )
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(REMOVE_LOCK_GAS)
-                    .remove_lock(hash),
-            )
+        promise.then(
+            Self::ext(env::current_account_id())
+                .with_unused_gas_weight(1)
+                .with_static_gas(ON_WITHDRAW_WNEAR_GAS)
+                .on_withdraw_wnear(
+                    hash,
+                    amount_to_send,
+                    near_deposit_and_transfer_cost,
+                    storage_to_pay,
+                    is_call,
+                ),
+        )
     }
 
     fn modify_state_after_withdraw(
@@ -221,7 +226,7 @@ impl LiquidStakingToken {
         // Update the in-flight (locked) tranche under `hash`. There
         // is at most one such tranche per `hash` at any moment, so
         // we always update the same one this attempt locked. Any
-        // re-unstakes that arrived concurrently are appended as
+        // re-unstake that arrived concurrently are appended as
         // separate, unlocked tranches and stay untouched here.
         let tranche = self.withdrawal_requests.locked_tranche_mut(&hash);
 

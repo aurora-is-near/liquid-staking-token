@@ -45,8 +45,6 @@ fn wnear_partial_delivery_tracks_the_outgoing_yocto_deposit() {
     assert_eq!(prior[0].wnear_residual, residual);
     assert!(prior[0].storage_was_paid);
 
-    context("pool.near", 5, NearToken::ZERO, success(vec![]), 5);
-    pool.remove_lock(args.hash().unwrap());
     context("alice.near", 300, NearToken::ZERO, vec![], 5);
     drop(pool.withdraw(args.clone()));
     context(

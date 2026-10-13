@@ -233,9 +233,8 @@ impl WithdrawalRequests {
     /// exists for `hash` at all).
     ///
     /// Returns `true` if a locked tranche was found and unlocked; `false`
-    /// otherwise. Lets callers — both the standard tail-of-chain
-    /// `remove_lock` callback and the admin escape-hatch
-    /// `force_release_lock` — distinguish a real recovery from a no-op for
+    /// otherwise. Lets settlement callbacks and the admin escape-hatch
+    /// `force_release_lock` distinguish a real recovery from a no-op for
     /// logging/telemetry without leaking the internal vec layout.
     pub(crate) fn release_lock(&mut self, hash: &CryptoHash) -> bool {
         let Some(tranches) = self.requests.get_mut(hash) else {

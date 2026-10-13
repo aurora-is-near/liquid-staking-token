@@ -343,14 +343,17 @@ A few consequences worth knowing:
   already-matured tranche and is picked up by the next `withdraw` along with any other matured tranches under the
   same hash — no fresh 4-epoch wait. Re-unstaking into the same hash in the meantime simply appends a new
   independent tranche; the residual is unaffected.
-- **An oversize `ft_on_transfer` result is treated as full delivery.** A misbehaving receiver that returns a
-  payload exceeding the contract's result-size cap (~42 bytes) trips a parse error in our `on_withdraw_wnear`
-  callback. The wNEAR transfer itself succeeded, so we mark the in-flight tranche as fully consumed and the user's
-  claim is zeroed. The same code path also fires when the wNEAR contract itself panics (e.g. gas exhaustion) —
-  this is a known limitation; in practice wNEAR is robust enough that real panics are extremely rare.
-- **A failed plain `ft_transfer` (no `msg`)** rolls back the callback receipt; the in-flight tranche stays locked
-  with its full claim intact, and the chain's terminal `remove_lock` callback unlocks it so the user can retry —
-  no cooldown reset, no residual recorded.
+- **A failed settlement stays locked.** An invalid or oversized successful result from wNEAR itself,
+  or a failed settlement callback, has an uncertain payment outcome. Settlement retains the lock to prevent
+  a second payout. Admin recovery must inspect the actual delivery receipts before releasing it.
+- **A failed plain `ft_transfer` remains retryable.** Settlement preserves the unpaid claim and returns normally;
+  the same callback releases its lock. A failed `ft_transfer_call` is still considered fully consumed,
+  since failure of its returned promise chain does not prove that no tokens were delivered.
+- **Settlement and unlocking are atomic.** No separate cleanup callback unlocks claims. The
+  `remove_lock` endpoint has been removed, so an old callback cannot unlock a subsequent withdrawal
+  under the same message hash. This requires no state migration. Pause new withdrawals and let
+  existing chains finish before upgrading: already scheduled calls to the removed endpoint will fail,
+  and any locked residual or unpaid claim left by an old settlement will need admin reconciliation.
 
 ---
 
@@ -543,10 +546,9 @@ near contract call-function as-transaction <CONTRACT_ID> force_release_lock \
 
 - Unlocks the in-flight (locked) tranche queued under `hash`, leaving any other tranches untouched.
 - Returns `true` if a locked tranche was found and released, `false` otherwise.
-- Intended for recovery when settlement or cleanup fails and the in-flight tranche stays locked, blocking every
-  subsequent `withdraw` for that hash with `"Unstake request is already in progress"`.
-- Before releasing, inspect the delivery receipts and verify that the delivery did not succeed. Releasing a
-  successfully paid but unsettled claim permits a second payout; reconcile such a claim before any unlock or retry.
+- Intended for recovery when settlement fails or an upgrade leaves an in-flight tranche locked. Before
+  releasing it, verify that the delivery did not succeed. Releasing a successfully paid but unsettled claim
+  permits a second payout; reconcile such a claim before any unlock or retry.
 - Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ---
@@ -617,8 +619,9 @@ partially consumes the LST tokens.
 ```
 
 **Holder-count upgrades.** Holder statistics change only when an account crosses between zero and nonzero LST balance. This prevents further counter corruption; it does not reconstruct an already incorrect historical count.
+
 **Service account registration.** The pool and treasury LST accounts cannot unregister, even when their LST balance is zero. Reward fee minting and escrow settlement require these accounts to remain registered.
 
-**Uncertain withdrawal settlement.** Cleanup keeps the claim locked when its settlement callback fails or returns an invalid result. Before force-releasing such a lock, inspect delivery receipts and reconcile any completed payment to prevent a second payout.
+**Uncertain withdrawal settlement.** The claim stays locked when its settlement callback fails or returns an invalid result. Before force-releasing such a lock, inspect delivery receipts and reconcile any completed payment to prevent a second payout.
 
 **wNEAR transfer deposits.** The NEAR balance tracker includes the one-yocto deposit spent on each external FT transfer, including attempts that send only residual wNEAR. Self-withdrawals spend no FT transfer deposit. The callback keeps its original argument list and JSON field names; new calls include the transfer deposit in the cost carried by `amount_to_near_deposit`, with storage accounted for separately.
