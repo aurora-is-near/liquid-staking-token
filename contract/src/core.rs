@@ -10,17 +10,7 @@ impl FungibleTokenCore for LiquidStakingToken {
     #[pause]
     #[payable]
     fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>) {
-        let is_new_delegator = self.is_zero_balance(&receiver_id);
-
-        self.token.ft_transfer(receiver_id, amount, memo);
-
-        if is_new_delegator {
-            self.statistics.increase_delegators();
-        }
-
-        if self.is_zero_balance(&env::predecessor_account_id()) {
-            self.statistics.decrease_delegators();
-        }
+        self.transfer_tokens(&receiver_id, amount, memo);
     }
 
     #[pause]
@@ -32,19 +22,17 @@ impl FungibleTokenCore for LiquidStakingToken {
         memo: Option<String>,
         msg: String,
     ) -> PromiseOrValue<U128> {
-        let is_new_delegator = self.is_zero_balance(&receiver_id);
-        let promise = self.token.ft_transfer_call(receiver_id, amount, memo, msg);
+        let sender_id = env::predecessor_account_id();
+        let sender_was_zero = self.is_zero_balance(&sender_id);
+        let receiver_was_zero = self.is_zero_balance(&receiver_id);
 
-        // Asymmetric on purpose: increment for a newly-funded receiver runs
-        // synchronously here because the receiver's post-call balance is
-        // known. The matching decrement for the sender (and the receiver, on
-        // a full refund) is deferred to `ft_resolve_transfer`, which sees the
-        // final balances after `ft_on_transfer` has reported its `unused`
-        // amount. Tightening this into a synchronous decrement would
-        // double-count once the resolver runs.
-        if is_new_delegator {
-            self.statistics.increase_delegators();
-        }
+        let promise = self
+            .token
+            .ft_transfer_call(receiver_id.clone(), amount, memo, msg);
+
+        // Account for the transfer now; the resolver counts only actual refunds.
+        self.update_delegators(&sender_id, sender_was_zero);
+        self.update_delegators(&receiver_id, receiver_was_zero);
 
         promise
     }
@@ -59,27 +47,34 @@ impl FungibleTokenCore for LiquidStakingToken {
 }
 
 impl LiquidStakingToken {
+    fn transfer_tokens(&mut self, receiver_id: &AccountId, amount: U128, memo: Option<String>) {
+        let sender_id = env::predecessor_account_id();
+        let sender_was_zero = self.is_zero_balance(&sender_id);
+        let receiver_was_zero = self.is_zero_balance(receiver_id);
+        self.token.ft_transfer(receiver_id.clone(), amount, memo);
+        self.update_delegators(&sender_id, sender_was_zero);
+        self.update_delegators(receiver_id, receiver_was_zero);
+    }
+
     pub(crate) fn treasury_deposit(&mut self, amount: NearToken) {
         let treasury_id = self.treasury_id.clone();
         self.internal_deposit(&treasury_id, amount);
     }
 
     pub(crate) fn internal_deposit(&mut self, account_id: &AccountId, amount: NearToken) {
-        if self.is_zero_balance(account_id) {
-            self.statistics.increase_delegators();
-        }
+        let was_zero = self.is_zero_balance(account_id);
 
         self.token
             .internal_deposit(account_id, amount.as_yoctonear());
+        self.update_delegators(account_id, was_zero);
     }
 
     pub(crate) fn internal_withdraw(&mut self, account_id: &AccountId, amount: NearToken) {
+        let was_zero = self.is_zero_balance(account_id);
+
         self.token
             .internal_withdraw(account_id, amount.as_yoctonear());
-
-        if self.is_zero_balance(account_id) {
-            self.statistics.decrease_delegators();
-        }
+        self.update_delegators(account_id, was_zero);
     }
 
     pub(crate) fn internal_transfer(
@@ -95,4 +90,16 @@ impl LiquidStakingToken {
     pub(crate) fn is_zero_balance(&self, account_id: &AccountId) -> bool {
         self.token.ft_balance_of(account_id.clone()).0 == 0
     }
+
+    pub(crate) fn update_delegators(&mut self, account_id: &AccountId, was_zero: bool) {
+        match (was_zero, self.is_zero_balance(account_id)) {
+            (true, false) => self.statistics.increase_delegators(),
+            (false, true) => self.statistics.decrease_delegators(),
+            _ => {}
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "security_tests/holder_count.rs"]
+mod security_tests;

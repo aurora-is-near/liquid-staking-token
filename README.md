@@ -614,4 +614,5 @@ partially consumes the LST tokens.
    → 10 wNEAR returned to alice
 ```
 
+**Holder-count upgrades.** Holder statistics change only when an account crosses between zero and nonzero LST balance. This prevents further counter corruption; it does not reconstruct an already incorrect historical count.
 **Service account registration.** The pool and treasury LST accounts cannot unregister, even when their LST balance is zero. Reward fee minting and escrow settlement require these accounts to remain registered.
