@@ -525,8 +525,10 @@ near contract call-function as-transaction <CONTRACT_ID> add_full_access_key \
 - Adds a full access key to the contract's account so the holder can sign arbitrary actions (manual stake, transfer,
   redeploy, etc.) directly against it.
 - Intended as a break-glass mechanism, primarily to recover from a dead validator that prevents `ping` from firing a
-  fresh stake. Use sparingly: there is no on-chain `delete_key` method, so a granted key can only be removed via a
-  contract upgrade.
+  fresh stake. Use sparingly and revoke recovery keys when they are no longer needed.
+- A valid full-access key of the contract account can revoke keys with a native `DeleteKey` transaction;
+  no contract method or code upgrade is required.
+- Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ### `force_release_lock` — clear a stuck in-flight withdrawal
 
@@ -541,10 +543,10 @@ near contract call-function as-transaction <CONTRACT_ID> force_release_lock \
 
 - Unlocks the in-flight (locked) tranche queued under `hash`, leaving any other tranches untouched.
 - Returns `true` if a locked tranche was found and released, `false` otherwise.
-- Intended as a break-glass for the rare case where the tail `remove_lock` callback of a `withdraw` chain fails
-  to fire (gas exhaustion in a deeply nested receipt, etc.) and the in-flight tranche stays locked, blocking
-  every subsequent `withdraw` for that hash with `"Unstake request is already in progress"`. After release, the
-  user can retry `withdraw` normally.
+- Intended for recovery when settlement or cleanup fails and the in-flight tranche stays locked, blocking every
+  subsequent `withdraw` for that hash with `"Unstake request is already in progress"`.
+- Before releasing, inspect the delivery receipts and verify that the delivery did not succeed. Releasing a
+  successfully paid but unsettled claim permits a second payout; reconcile such a claim before any unlock or retry.
 - Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ---
@@ -616,3 +618,7 @@ partially consumes the LST tokens.
 
 **Holder-count upgrades.** Holder statistics change only when an account crosses between zero and nonzero LST balance. This prevents further counter corruption; it does not reconstruct an already incorrect historical count.
 **Service account registration.** The pool and treasury LST accounts cannot unregister, even when their LST balance is zero. Reward fee minting and escrow settlement require these accounts to remain registered.
+
+**Uncertain withdrawal settlement.** Cleanup keeps the claim locked when its settlement callback fails or returns an invalid result. Before force-releasing such a lock, inspect delivery receipts and reconcile any completed payment to prevent a second payout.
+
+**wNEAR transfer deposits.** The NEAR balance tracker includes the one-yocto deposit spent on each external FT transfer, including attempts that send only residual wNEAR. Self-withdrawals spend no FT transfer deposit. The callback keeps its original argument list and JSON field names; new calls include the transfer deposit in the cost carried by `amount_to_near_deposit`, with storage accounted for separately.

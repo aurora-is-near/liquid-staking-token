@@ -26,6 +26,9 @@ impl LiquidStakingToken {
             env::promise_results_count() == 1,
             "Invalid promise results count"
         );
+        // Keep the legacy JSON key for self-callbacks queued before an upgrade.
+        // New calls include the FT transfer deposit; storage remains separate.
+        let near_deposit_and_transfer_cost = amount_to_near_deposit;
         let max_len = if is_call { MAX_RESULT_LENGTH } else { 0 };
         let consumed = match env::promise_result_checked(0, max_len) {
             Ok(bytes) => {
@@ -57,7 +60,7 @@ impl LiquidStakingToken {
         self.modify_state_after_withdraw(
             hash,
             amount_to_send,
-            amount_to_near_deposit,
+            near_deposit_and_transfer_cost,
             consumed,
             storage_to_pay,
         );
@@ -120,6 +123,12 @@ impl LiquidStakingToken {
             .unwrap_or_else(|| env::panic_str("wNEAR residual exceeds the deliverable amount"));
 
         let is_call = !is_self_withdraw && msg.is_some();
+        let near_deposit_and_transfer_cost =
+            amount_to_near_deposit.saturating_add(if is_self_withdraw {
+                NearToken::ZERO
+            } else {
+                ONE_YOCTO // ft_transfer[_call] requires 1 yoctoNEAR attached deposit.
+            });
         let ft_min_gas = calculate_min_gas(min_gas, is_call);
         let ft_amount: U128 = amount_to_send.as_yoctonear().into();
 
@@ -186,7 +195,7 @@ impl LiquidStakingToken {
                     .on_withdraw_wnear(
                         hash,
                         amount_to_send,
-                        amount_to_near_deposit,
+                        near_deposit_and_transfer_cost,
                         storage_to_pay,
                         is_call,
                     ),
@@ -202,7 +211,7 @@ impl LiquidStakingToken {
         &mut self,
         hash: CryptoHash,
         amount_to_send: NearToken,
-        amount_to_near_deposit: NearToken,
+        near_deposit_and_transfer_cost: NearToken,
         consumed: NearToken,
         storage_to_pay: NearToken,
     ) {
@@ -240,13 +249,17 @@ impl LiquidStakingToken {
 
         // `latest_total_balance` mirrors the contract's locked + unlocked
         // NEAR. Decrement only by what actually moved off the account
-        // this attempt (near_deposit + storage_deposit) — never by the
+        // this attempt (near_deposit + FT transfer deposit + storage_deposit) — never by the
         // delivered wNEAR amount, since the residual portion was already
         // counted on a prior attempt.
-        let spent_near = amount_to_near_deposit.saturating_add(storage_to_pay);
+        let spent_near = near_deposit_and_transfer_cost.saturating_add(storage_to_pay);
 
         if spent_near > NearToken::ZERO {
             self.statistics.decrease_total_balance(spent_near);
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../security_tests/transfer_accounting.rs"]
+mod security_tests;

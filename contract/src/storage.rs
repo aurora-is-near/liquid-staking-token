@@ -56,8 +56,7 @@ impl StorageManagement for LiquidStakingToken {
             account_id != env::current_account_id() && account_id != self.treasury_id,
             "Pool and treasury accounts cannot unregister"
         );
-        let burns_lst_balance =
-            force == Some(true) && !self.is_zero_balance(&account_id);
+        let burns_lst_balance = force == Some(true) && !self.is_zero_balance(&account_id);
         let unregistered = self.token.storage_unregister(force);
 
         if unregistered && burns_lst_balance {
