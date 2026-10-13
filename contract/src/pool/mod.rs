@@ -92,9 +92,10 @@ impl LiquidStakingToken {
         self.statistics.total_pending_withdrawals
     }
 
-    /// Last reading of `account_locked_balance + account_balance`, refreshed
-    /// by reward syncs and balance-affecting calls. Not a live read of the
-    /// account's NEAR balance.
+    /// Tracked `account_locked_balance + account_balance`, refreshed by reward
+    /// syncs and balance-affecting calls. Accepted wNEAR deposits are booked
+    /// before their unwrapped NEAR arrives, so while transfers are in flight
+    /// this may exceed the live balance.
     pub const fn get_total_balance(&self) -> NearToken {
         self.statistics.latest_total_balance
     }
@@ -214,14 +215,21 @@ impl LiquidStakingToken {
             .and_then(|balance| balance.checked_sub(amount_to_exclude.unwrap_or_default()))
             .unwrap_or_else(|| env::panic_str("Overflow while calculating actual total balance"));
 
-        let latest_total_balance = self.statistics.latest_total_balance;
+        let latest_total_balance = self.get_total_balance();
 
-        require!(
-            current_total_balance >= latest_total_balance,
-            "The new total balance should not be less than the old total balance",
-        );
+        // Deposits are booked when accepted and payments when settled, so
+        // in-flight transfers can only leave the balance below the tracker.
+        // That postpones reward recognition and must not fail the caller.
+        let Some(total_reward) = current_total_balance.checked_sub(latest_total_balance) else {
+            near_sdk::log!(
+                "Reward sync postponed: balance is {} yoctoNEAR below the tracked total",
+                latest_total_balance
+                    .saturating_sub(current_total_balance)
+                    .as_yoctonear()
+            );
 
-        let total_reward = current_total_balance.saturating_sub(latest_total_balance);
+            return NearToken::ZERO;
+        };
 
         if total_reward.is_zero() {
             return NearToken::ZERO;

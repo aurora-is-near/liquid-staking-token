@@ -79,21 +79,29 @@ impl LiquidStakingToken {
         amount: U128,
         args: StakeMessage,
     ) -> PromiseOrValue<U128> {
+        let deposit_amount = NearToken::from_yoctonear(amount.0);
+
         if env::promise_result_checked(0, 0).is_err() {
+            // The unwrapped NEAR never arrives: undo the booking made on acceptance.
+            self.statistics.decrease_total_balance(deposit_amount);
             return PromiseOrValue::Value(amount);
         }
 
-        let stake_amount = NearToken::from_yoctonear(amount.0);
+        // Every accepted wNEAR deposit, including this one, is already booked,
+        // so unwrapped NEAR cannot be mistaken for a reward here.
+        self.sync_rewards_internal(None);
 
-        self.sync_rewards_internal(Some(stake_amount));
-        self.stake_and_deposit(sender_id, args, stake_amount, DepositToken::Wnear)
-            .unwrap_or_else(|error| {
+        match self.stake_and_deposit(sender_id, args, deposit_amount, DepositToken::Wnear) {
+            Ok(promise) => promise.into(),
+            Err(error) => {
                 near_sdk::log!("Error occurred while trying to stake and deposit: {error}");
-                self.refund_wnear_promise(stake_amount)
-            })
-            .into()
+                self.refund_booked_wnear(deposit_amount).into()
+            }
+        }
     }
 
+    /// `deposit_amount` is the amount to book in the balance tracker: the
+    /// native deposit, or zero for wNEAR deposits booked on acceptance.
     #[private]
     pub fn modify_state_before_stake(
         &mut self,
@@ -246,7 +254,7 @@ impl LiquidStakingToken {
                 env::panic_str("Failed to update state before staking");
             }
 
-            self.refund_wnear_promise(deposit_amount)
+            self.refund_booked_wnear(deposit_amount)
         }
     }
 }
@@ -254,7 +262,7 @@ impl LiquidStakingToken {
 impl LiquidStakingToken {
     // The method is called by the `ft_on_transfer` callback.
     pub(crate) fn handle_staking(
-        &self,
+        &mut self,
         sender_id: AccountId,
         deposit_amount: U128,
         args: StakeMessage,
@@ -268,6 +276,11 @@ impl LiquidStakingToken {
                 .saturating_add(NEAR_WITHDRAW_GAS)
                 .saturating_add(callback_gas),
         );
+        // Book the deposit once it is accepted. The unwrapped NEAR arrives in a
+        // later receipt; until then the tracker runs ahead of the balance, which
+        // can only postpone reward recognition, never inflate it.
+        self.statistics
+            .increase_total_balance(NearToken::from_yoctonear(deposit_amount.0));
         ext_wnear::ext(self.wnear_id.clone())
             .with_attached_deposit(ONE_YOCTO)
             .with_static_gas(NEAR_WITHDRAW_GAS)
@@ -308,6 +321,12 @@ impl LiquidStakingToken {
             return Err("The amount of LST tokens to be minted must be more than 0");
         }
 
+        // wNEAR deposits were booked on acceptance.
+        let amount_to_book = match deposit_token {
+            DepositToken::Native => deposit_amount,
+            DepositToken::Wnear => NearToken::ZERO,
+        };
+
         let mut promise = Promise::new(env::current_account_id());
 
         // It makes sense in case of staking native NEAR only.
@@ -331,7 +350,7 @@ impl LiquidStakingToken {
                 &sender_id,
                 &args.receiver_id,
                 stake_amount,
-                deposit_amount,
+                amount_to_book,
                 lst_tokens,
             )
             .then(
@@ -347,6 +366,13 @@ impl LiquidStakingToken {
                         deposit_token,
                     ),
             ))
+    }
+
+    /// Returns a wNEAR deposit that was booked on acceptance but not staked.
+    /// The `near_deposit` attachment leaves the account in this receipt.
+    fn refund_booked_wnear(&mut self, deposit_amount: NearToken) -> Promise {
+        self.statistics.decrease_total_balance(deposit_amount);
+        self.refund_wnear_promise(deposit_amount)
     }
 
     fn refund_wnear_promise(&self, deposit_amount: NearToken) -> Promise {
@@ -409,3 +435,7 @@ fn stake_gas(args: &StakeMessage) -> Gas {
 #[cfg(test)]
 #[path = "../security_tests/staking_gas.rs"]
 mod security_tests;
+
+#[cfg(test)]
+#[path = "../security_tests/concurrent_stakes.rs"]
+mod concurrent_stakes_tests;

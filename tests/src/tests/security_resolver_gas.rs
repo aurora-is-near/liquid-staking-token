@@ -65,6 +65,9 @@ async fn security_large_receiver_result_refunds_lst_without_refunding_spent_wnea
     let before_supply = env.lst.ft_total_supply().await?;
     env.wnear.near_deposit(alice, amount).await?;
     let refund = unstake_message(alice.id(), &WithdrawTokens::Native);
+    // Validator rewards accrue in this environment. Keep the mint and the
+    // refund's unstake in one epoch, so both use the same exchange rate.
+    env.wait_for_next_epoch_start().await?;
     let result = env
         .wnear
         .ft_transfer_call(

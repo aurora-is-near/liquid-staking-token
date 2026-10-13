@@ -511,7 +511,7 @@ near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
 | `get_reward_fee_fraction`                              | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                                                                                                                                        |
 | `get_total_staked_balance`                             | `NearToken`                                            | Tracked NEAR backing the LST supply.                                                                                                                                      |
 | `get_total_pending_withdrawals`                        | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                                                                                                                                |
-| `get_total_balance`                                    | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.                                                                                                                        |
+| `get_total_balance`                                    | `NearToken`                                            | Tracked `locked + unlocked` balance in NEAR. May exceed the live balance while accepted wNEAR deposits are in flight.                                                     |
 | `get_number_of_accounts`                               | `u64`                                                  | Number of LST holders.                                                                                                                                                    |
 | `get_owner_id` / `get_treasury_id`                     | `AccountId`                                            | Configured roles.                                                                                                                                                         |
 | `get_staking_key`                                      | `PublicKey`                                            | Validator key the contract delegates to.                                                                                                                                  |
@@ -685,3 +685,14 @@ partially consumes the LST tokens.
 **Withdrawal gas safety.** Before locking a claim, the contract checks the remaining gas against the delivery budget, a 15 TGas settlement callback and execution overhead. There is no separate cleanup callback. Clients and bots that call `withdraw` with less than the required gas (see [Withdrawing after cooldown](#withdrawing-after-cooldown)) must raise it; 120 TGas covers the default variants.
 
 **FT resolver gas.** LST transfer resolvers and unstake settlement callbacks reserve 15 TGas. Regression tests exercise full refunds, long account names, a crowded storage trie and a 64 KiB receiver result.
+
+**Concurrent wNEAR stakes.** A wNEAR deposit is booked in the NEAR balance tracker as soon as `ft_on_transfer`
+accepts it, before wNEAR delivers the unwrapped NEAR. A failed unwrap or a refund removes the booking. Outgoing
+payments are removed only after they settle. While transfers are in flight, the tracker can therefore run ahead of
+the account balance but never behind it, so unwrapped NEAR from another in-flight stake is never treated as a
+validator reward. Reward sync recognizes only `balance − tracker` when it is positive. If in-flight transfers leave
+the balance below the tracker, the sync is postponed with a `Reward sync postponed` log instead of failing the
+caller, and the remaining reward is recognized by a later sync.
+
+Pause new operations and drain outstanding promise chains before upgrading: a wNEAR stake accepted by the previous
+code was not booked on acceptance. Callback argument lists and the Borsh state layout are unchanged.
