@@ -1,9 +1,13 @@
 use near_contract_standards::fungible_token::FungibleTokenCore;
+use near_contract_standards::fungible_token::receiver::ext_ft_receiver;
 use near_plugins::{Pausable, pause};
 use near_sdk::json_types::U128;
-use near_sdk::{AccountId, NearToken, PromiseOrValue, env, near};
+use near_sdk::{AccountId, Gas, NearToken, PromiseOrValue, env, near};
 
+use crate::pool::{GAS_RESERVE, assert_gas};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
+
+const FT_RESOLVE_TRANSFER_GAS: Gas = Gas::from_tgas(15);
 
 #[near]
 impl FungibleTokenCore for LiquidStakingToken {
@@ -22,19 +26,27 @@ impl FungibleTokenCore for LiquidStakingToken {
         memo: Option<String>,
         msg: String,
     ) -> PromiseOrValue<U128> {
+        assert_gas(GAS_RESERVE.saturating_add(FT_RESOLVE_TRANSFER_GAS));
         let sender_id = env::predecessor_account_id();
         let sender_was_zero = self.is_zero_balance(&sender_id);
         let receiver_was_zero = self.is_zero_balance(&receiver_id);
 
-        let promise = self
-            .token
-            .ft_transfer_call(receiver_id.clone(), amount, memo, msg);
+        self.token.ft_transfer(receiver_id.clone(), amount, memo);
+        let promise = ext_ft_receiver::ext(receiver_id.clone())
+            .with_unused_gas_weight(1)
+            .ft_on_transfer(sender_id.clone(), amount, msg)
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(FT_RESOLVE_TRANSFER_GAS)
+                    .with_unused_gas_weight(0)
+                    .ft_resolve_transfer(sender_id.clone(), receiver_id.clone(), amount),
+            );
 
         // Account for the transfer now; the resolver counts only actual refunds.
         self.update_delegators(&sender_id, sender_was_zero);
         self.update_delegators(&receiver_id, receiver_was_zero);
 
-        promise
+        promise.into()
     }
 
     fn ft_total_supply(&self) -> U128 {

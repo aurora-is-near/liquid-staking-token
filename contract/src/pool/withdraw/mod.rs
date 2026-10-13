@@ -2,14 +2,16 @@ use near_plugins::{Pausable, pause};
 use near_sdk::{Gas, NearToken, Promise, env, near, require};
 
 use crate::pool::unstake::{UnstakeMessage, WithdrawTokens};
+use crate::pool::{GAS_RESERVE, STORAGE_DEPOSIT_GAS, assert_gas, calculate_min_gas};
+use crate::traits::NEAR_DEPOSIT_GAS;
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
 mod native;
 pub mod requests;
 mod wnear;
 
-const ON_WITHDRAW_WNEAR_GAS: Gas = Gas::from_tgas(5);
-const ON_WITHDRAW_NATIVE_GAS: Gas = Gas::from_tgas(3);
+const ON_WITHDRAW_WNEAR_GAS: Gas = Gas::from_tgas(15);
+const ON_WITHDRAW_NATIVE_GAS: Gas = Gas::from_tgas(15);
 
 #[near]
 impl LiquidStakingToken {
@@ -44,6 +46,8 @@ impl LiquidStakingToken {
     ///   before retrying. Failed settlement requires admin reconciliation.
     #[pause]
     pub fn withdraw(&mut self, args: UnstakeMessage) -> Promise {
+        // Check the delivery and settlement budget before locking or sending anything.
+        assert_gas(withdraw_gas(&args));
         let current_epoch = env::epoch_height();
         let hash = args
             .hash()
@@ -63,6 +67,36 @@ impl LiquidStakingToken {
         }
     }
 }
+
+fn withdraw_gas(args: &UnstakeMessage) -> Gas {
+    let delivery_gas = match &args.withdraw_tokens {
+        WithdrawTokens::Native => ON_WITHDRAW_NATIVE_GAS,
+        WithdrawTokens::Wnear {
+            is_storage_deposit,
+            msg,
+            min_gas,
+            ..
+        } => {
+            let mut gas = NEAR_DEPOSIT_GAS.saturating_add(ON_WITHDRAW_WNEAR_GAS);
+
+            if args.receiver_id != env::current_account_id() {
+                gas = gas.saturating_add(calculate_min_gas(*min_gas, msg.is_some()));
+
+                if *is_storage_deposit {
+                    gas = gas.saturating_add(STORAGE_DEPOSIT_GAS);
+                }
+            }
+
+            gas
+        }
+    };
+
+    GAS_RESERVE.saturating_add(delivery_gas)
+}
+
+#[cfg(test)]
+#[path = "../../security_tests/withdrawal_gas.rs"]
+mod withdrawal_gas_tests;
 
 #[cfg(test)]
 #[path = "../../security_tests/settlement_lock.rs"]

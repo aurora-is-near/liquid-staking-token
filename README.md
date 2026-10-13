@@ -203,7 +203,7 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 | `is_storage_deposit` | `bool`           | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the staked amount and calls `storage_deposit` on the LST contract for `receiver_id`. Required when `receiver_id` is not yet registered. **Set only when registration is needed** — if `receiver_id` is already registered, the 1250 µNEAR is not refunded to the sender; it stays on the contract and accrues to the pool as a reward on the next sync. Defaults to `false`. |
 | `msg`                | `String`         | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                                                                                                                                |
 | `memo`               | `String`         | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                                                                                                                                              |
-| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                                                                                                                                           |
+| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 30 TGas for calls with a message; lower values are raised to 30 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas. Every TGas above the default raises the required gas reservation by the same amount.                                                                                                     |
 | `refund_message`     | `UnstakeMessage` | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery.                                                                                                                |
 
 **Token amount minted.** The amount of LST minted is `stake_amount * total_lst_supply / total_staked_amount`, floored
@@ -221,6 +221,36 @@ already reflected, so neither stake amount is lost.
 rolls back the state changes (`total_staked_amount`, the minted LST, and the tracked total balance) and refunds
 the deposit — native NEAR is transferred back to the sender; wNEAR is re-wrapped via `near_deposit` and returned.
 The user's LST balance is left untouched.
+
+**Gas safety.** Attach 200 TGas for the documented staking flows. The contract checks the remaining gas before
+accepting native NEAR or unwrapping wNEAR, and reserves static gas for the entire callback chain. A rejected wNEAR
+stake returns its tokens through the wNEAR resolver, without borrowing any existing withdrawal residual.
+The reservation grows with `min_gas` and optional storage registration. With the default receiver gas and no storage
+registration, it is 90 TGas for native staking, 125 TGas with `msg`, 115 TGas inside wNEAR `ft_on_transfer`, or
+150 TGas inside wNEAR `ft_on_transfer` with `msg`. Storage registration adds 5 TGas. Allow additional gas for the
+entry receipt and wNEAR's outer transfer/resolver; these numbers are reservations, not transaction gas
+recommendations:
+
+| Flow                                      | Reservation (default `min_gas`) | Recommended transaction gas  |
+|-------------------------------------------|---------------------------------|------------------------------|
+| `stake` with native NEAR                  | 90 TGas (125 TGas with `msg`)   | 200 TGas                     |
+| `ft_transfer_call` on wNEAR to the LST    | 115 TGas (150 TGas with `msg`)  | 200 TGas (wNEAR keeps 30)    |
+| `msg` with `min_gas` above 30 TGas        | + (`min_gas` − 30 TGas)         | + (`min_gas` − 30 TGas)      |
+
+For a custom `min_gas`, adding its increase over 30 TGas to the 200 TGas recommendation preserves the same margin.
+This is a conservative recommendation, not the exact minimum. The complete budget, including execution overhead
+and any outer calls, must fit within NEAR's [1 PGas (1000 TGas) transaction gas limit](https://github.com/near/nearcore/blob/master/CHANGELOG.md#2110).
+Near that limit, calculate the reservation and overhead explicitly instead of simply capping the recommendation.
+
+If the remaining-gas check rejects a stake, it does so before changing the staking state: native NEAR is refunded
+with the failed receipt, and wNEAR is returned to the sender by the wNEAR resolver.
+
+**Staking through NEAR Intents.** An Intents `ft_withdraw` of wNEAR with a `StakeMessage` as `msg` attaches only its
+`min_gas` (50 TGas by default) plus a share of the relayer's leftover gas to the wNEAR `ft_transfer_call`. Set the
+intent's `min_gas` to at least 200 TGas (more with a custom `StakeMessage.min_gas`). Otherwise the stake may be
+rejected and the wNEAR returned to the user's Intents balance.
+
+The serialized `StakeMessage`, including nested messages and memo, is limited to 4096 bytes so callback work stays bounded.
 
 ---
 
@@ -242,6 +272,10 @@ near contract call-function as-transaction <CONTRACT_ID> ft_transfer_call \
   sign-as alice.near \
   network-config mainnet
 ```
+
+Attach at least 100 TGas. The unstake runs in the LST contract's own `ft_on_transfer`, which receives only the gas
+left after the transfer; the transfer resolver and the unstake settlement callback each reserve 15 TGas. With too
+little gas the unstake is rejected and the LST is refunded by the NEP-141 resolver.
 
 On success the LST tokens are burned and an **independent withdrawal tranche** is recorded under the hash of the
 `UnstakeMessage`. The NEAR for that tranche is released only after the **4-epoch cooldown** measured from this
@@ -293,7 +327,7 @@ The unstaked NEAR is sent as a native NEAR transfer to `receiver_id` once `withd
     "is_storage_deposit": true,           // optional, default false
     "msg":                "...",          // optional
     "memo":               "my unstake",   // optional
-    "min_gas":            35000000000000  // optional
+    "min_gas":            60000000000000  // optional; includes ~30 TGas kept by wNEAR
   }
 }
 ```
@@ -305,7 +339,7 @@ The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 | `is_storage_deposit` | `bool`      | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the withdrawn amount and calls `storage_deposit` on the wNEAR contract for `receiver_id`. **Set only when registration is needed** — if `receiver_id` is already registered on wNEAR, the 1250 µNEAR is not refunded to the user; it ends up on the LST contract's balance and accrues to the pool as a reward. Defaults to `false`. |
 | `msg`                | `String`    | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                                                                                                                                                                                                                                               |
 | `memo`               | `String`    | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                                                                                                                                                                                                                                                 |
-| `min_gas`            | `Gas` (u64) | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                                                                                                                                                                                                                                                   |
+| `min_gas`            | `Gas` (u64) | No       | Static gas attached to the wNEAR transfer step: `ft_transfer_call` when `msg` is set (default and minimum 30 TGas), plain `ft_transfer` otherwise (default and minimum 2 TGas). wNEAR keeps about 30 TGas of an `ft_transfer_call` for itself, so the receiver's `ft_on_transfer` is guaranteed only `min_gas − 30 TGas` plus a share of unused gas. Set it to 30 TGas plus what the receiver needs. The field is part of the queue hash and cannot be changed for an existing claim; choose it so the complete [`withdraw` gas budget](#withdrawing-after-cooldown) fits within the 1 PGas transaction limit. |
 
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
@@ -370,11 +404,33 @@ near contract call-function as-transaction <CONTRACT_ID> withdraw \
       "withdraw_tokens": "native"
     }
   }' \
-  prepaid-gas '80 Tgas' \
+  prepaid-gas '120 Tgas' \
   attached-deposit '0 NEAR' \
   sign-as alice.near \
   network-config mainnet
 ```
+
+Before locking the claim, `withdraw` checks that the remaining gas covers the whole delivery and its settlement:
+
+| `withdraw_tokens`                     | Required remaining gas at the check               |
+|---------------------------------------|--------------------------------------------------|
+| `"native"`                            | 30 TGas                                          |
+| `wnear`, receiver is the LST contract | 40 TGas                                          |
+| `wnear` without `msg`                 | 40 TGas + `min_gas` (42 TGas by default)         |
+| `wnear` with `msg`                    | 40 TGas + `min_gas` (70 TGas by default)         |
+
+For an external wNEAR receiver, `is_storage_deposit` adds 5 TGas. These are remaining-gas thresholds, so the attached
+gas must also cover execution before the check. Attach 120 TGas for the default variants. For external wNEAR
+delivery, adding any increase in `min_gas` above its default to 120 TGas is a conservative recommendation that
+preserves the same margin; it is not the exact minimum.
+
+The complete transaction must fit within 1 PGas (1000 TGas). For external wNEAR delivery, this means `min_gas`
+plus 40 TGas, another 5 TGas if registration is requested, and execution before the check must fit within that
+limit. Near the ceiling, calculate this budget explicitly instead of capping the recommendation at 1000 TGas.
+Choose `min_gas` with this budget in mind when unstaking: it cannot be changed for an existing claim.
+
+If the remaining-gas check fails, the claim has not been locked and no tokens have been sent, so the call can be
+retried with more gas.
 
 The contract:
 
@@ -390,8 +446,8 @@ If no tranche has matured, the call panics with
 
 A given message hash can have **at most one `withdraw` call in flight at a time**. Concurrent `withdraw` calls for
 the same `UnstakeMessage` hash — both native and wNEAR variants — are rejected with `"Unstake request is already in
-progress"`. The in-flight tranche is locked while the FT chain is pending and unlocked by the chain's terminal
-callback, so callers should wait for the prior call to finish before retrying.
+progress"`. The in-flight tranche is locked while the delivery is pending and unlocked by its settlement callback,
+in the same receipt that records the result, so callers should wait for the prior call to finish before retrying.
 
 ---
 
@@ -625,3 +681,7 @@ partially consumes the LST tokens.
 **Uncertain withdrawal settlement.** The claim stays locked when its settlement callback fails or returns an invalid result. Before force-releasing such a lock, inspect delivery receipts and reconcile any completed payment to prevent a second payout.
 
 **wNEAR transfer deposits.** The NEAR balance tracker includes the one-yocto deposit spent on each external FT transfer, including attempts that send only residual wNEAR. Self-withdrawals spend no FT transfer deposit. The callback keeps its original argument list and JSON field names; new calls include the transfer deposit in the cost carried by `amount_to_near_deposit`, with storage accounted for separately.
+
+**Withdrawal gas safety.** Before locking a claim, the contract checks the remaining gas against the delivery budget, a 15 TGas settlement callback and execution overhead. There is no separate cleanup callback. Clients and bots that call `withdraw` with less than the required gas (see [Withdrawing after cooldown](#withdrawing-after-cooldown)) must raise it; 120 TGas covers the default variants.
+
+**FT resolver gas.** LST transfer resolvers and unstake settlement callbacks reserve 15 TGas. Regression tests exercise full refunds, long account names, a crowded storage trie and a 64 KiB receiver result.

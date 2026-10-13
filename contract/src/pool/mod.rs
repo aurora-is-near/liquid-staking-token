@@ -20,9 +20,12 @@ mod withdraw;
 
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
-const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
-const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
+const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(10);
+const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(5);
 const RESTAKE_GAS: Gas = Gas::from_tgas(20);
+// Execution, storage access, serialization and promise creation in each parent receipt.
+pub(crate) const GAS_RESERVE: Gas = Gas::from_tgas(15);
+const MAX_MESSAGE_LENGTH: usize = 4096;
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
 #[near(serializers = [json])]
@@ -299,6 +302,19 @@ impl LiquidStakingToken {
             self.validator_public_key.clone(),
         )
     }
+}
+
+pub(crate) fn assert_gas(required: Gas) {
+    require!(
+        env::prepaid_gas().saturating_sub(env::used_gas()) >= required,
+        "Insufficient prepaid gas for the complete operation"
+    );
+}
+
+fn assert_message_size<T: near_sdk::serde::Serialize>(message: &T) {
+    let bytes = near_sdk::serde_json::to_vec(message)
+        .unwrap_or_else(|_| env::panic_str("Failed to serialize message"));
+    require!(bytes.len() <= MAX_MESSAGE_LENGTH, "Message is too large");
 }
 
 #[inline]

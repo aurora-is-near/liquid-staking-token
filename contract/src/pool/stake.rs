@@ -7,14 +7,14 @@ use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, re
 
 use crate::pool::unstake::UnstakeTrigger;
 use crate::pool::{
-    MODIFY_STATE_AFTER_STAKE_GAS, RESTAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage,
-    calculate_min_gas,
+    GAS_RESERVE, MODIFY_STATE_AFTER_STAKE_GAS, STORAGE_DEPOSIT_GAS, UnstakeMessage, assert_gas,
+    assert_message_size, calculate_min_gas,
 };
 use crate::storage::FT_STORAGE_DEPOSIT;
 use crate::traits::{NEAR_DEPOSIT_GAS, NEAR_WITHDRAW_GAS, ext_wnear};
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
-const REFUND_WNEAR_DEPOSIT_GAS: Gas = Gas::from_tgas(1);
+const REFUND_WNEAR_DEPOSIT_GAS: Gas = Gas::from_tgas(5);
 const ON_FT_ON_TRANSFER_GAS: Gas = Gas::from_tgas(40);
 const ON_RESTAKE_OR_REFUND_GAS: Gas = Gas::from_tgas(50);
 
@@ -55,6 +55,8 @@ impl LiquidStakingToken {
     #[pause]
     #[payable]
     pub fn stake(&mut self, args: StakeMessage) -> Promise {
+        assert_message_size(&args);
+        assert_gas(stake_gas(&args));
         let sender_id = env::predecessor_account_id();
         let deposit_amount = env::attached_deposit();
 
@@ -228,12 +230,13 @@ impl LiquidStakingToken {
         args: StakeMessage,
         deposit_token: DepositToken,
     ) -> Promise {
+        let callback_gas = on_restake_or_refund_gas(&args);
         if env::promise_result_checked(0, 0).is_ok() {
             // The batch succeeded, we can continue staking.
             self.restake_promise().then(
                 Self::ext(env::current_account_id())
                     .with_unused_gas_weight(1)
-                    .with_static_gas(ON_RESTAKE_OR_REFUND_GAS)
+                    .with_static_gas(callback_gas)
                     .on_restake_or_refund(sender_id, stake_amount, lst_amount, args, deposit_token),
             )
         } else {
@@ -256,6 +259,15 @@ impl LiquidStakingToken {
         deposit_amount: U128,
         args: StakeMessage,
     ) -> PromiseOrValue<U128> {
+        assert_message_size(&args);
+        // Reject before burning any wNEAR. The FT resolver can then refund the
+        // original tokens without touching another withdrawal's wNEAR residual.
+        let callback_gas = stake_gas(&args);
+        assert_gas(
+            GAS_RESERVE
+                .saturating_add(NEAR_WITHDRAW_GAS)
+                .saturating_add(callback_gas),
+        );
         ext_wnear::ext(self.wnear_id.clone())
             .with_attached_deposit(ONE_YOCTO)
             .with_static_gas(NEAR_WITHDRAW_GAS)
@@ -263,6 +275,7 @@ impl LiquidStakingToken {
             .near_withdraw(deposit_amount)
             .then(
                 Self::ext(env::current_account_id())
+                    .with_static_gas(callback_gas)
                     .with_unused_gas_weight(1)
                     .on_near_withdraw(sender_id, deposit_amount, args),
             )
@@ -289,6 +302,7 @@ impl LiquidStakingToken {
         }
 
         let lst_tokens = self.near_to_lst(stake_amount);
+        let restake_gas = GAS_RESERVE.saturating_add(on_restake_or_refund_gas(&args));
 
         if lst_tokens == NearToken::ZERO {
             return Err("The amount of LST tokens to be minted must be more than 0");
@@ -322,7 +336,7 @@ impl LiquidStakingToken {
             )
             .then(
                 Self::ext(env::current_account_id())
-                    .with_static_gas(RESTAKE_GAS)
+                    .with_static_gas(restake_gas)
                     .with_unused_gas_weight(1)
                     .restake_or_refund(
                         sender_id,
@@ -368,3 +382,30 @@ impl LiquidStakingToken {
         }
     }
 }
+
+fn on_restake_or_refund_gas(args: &StakeMessage) -> Gas {
+    if args.msg.is_some() {
+        GAS_RESERVE
+            .saturating_add(calculate_min_gas(args.min_gas, true))
+            .saturating_add(ON_FT_ON_TRANSFER_GAS)
+    } else {
+        ON_RESTAKE_OR_REFUND_GAS
+    }
+}
+
+fn stake_gas(args: &StakeMessage) -> Gas {
+    let gas = GAS_RESERVE
+        .saturating_add(MODIFY_STATE_AFTER_STAKE_GAS)
+        .saturating_add(GAS_RESERVE)
+        .saturating_add(on_restake_or_refund_gas(args));
+
+    if args.is_storage_deposit {
+        gas.saturating_add(STORAGE_DEPOSIT_GAS)
+    } else {
+        gas
+    }
+}
+
+#[cfg(test)]
+#[path = "../security_tests/staking_gas.rs"]
+mod security_tests;

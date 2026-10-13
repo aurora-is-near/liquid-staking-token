@@ -150,6 +150,7 @@ impl LiquidStakingToken {
         //   3. ft_transfer[_call](amount_to_send)   — if not self.
         let mut chain = (amount_to_near_deposit > NearToken::ZERO).then(|| {
             ext_wnear::ext(self.wnear_id.clone())
+                .with_unused_gas_weight(0)
                 .with_static_gas(NEAR_DEPOSIT_GAS)
                 .with_attached_deposit(amount_to_near_deposit)
                 .near_deposit()
@@ -162,7 +163,8 @@ impl LiquidStakingToken {
             );
 
             chain = Some(
-                next.with_static_gas(STORAGE_DEPOSIT_GAS)
+                next.with_unused_gas_weight(0)
+                    .with_static_gas(STORAGE_DEPOSIT_GAS)
                     .with_attached_deposit(storage_to_pay)
                     .storage_deposit(Some(args.receiver_id.clone()), None),
             );
@@ -181,6 +183,7 @@ impl LiquidStakingToken {
                     .ft_transfer_call(args.receiver_id, ft_amount, memo, msg)
             } else {
                 next.with_attached_deposit(ONE_YOCTO)
+                    .with_unused_gas_weight(1)
                     .with_static_gas(ft_min_gas)
                     .ft_transfer(args.receiver_id, ft_amount, memo)
             };
@@ -200,7 +203,7 @@ impl LiquidStakingToken {
 
         promise.then(
             Self::ext(env::current_account_id())
-                .with_unused_gas_weight(1)
+                .with_unused_gas_weight(0)
                 .with_static_gas(ON_WITHDRAW_WNEAR_GAS)
                 .on_withdraw_wnear(
                     hash,

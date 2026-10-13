@@ -155,6 +155,33 @@ impl Env {
         Ok(ft_receiver)
     }
 
+    pub async fn deploy_long_ft_receiver(&self) -> anyhow::Result<Contract> {
+        let receiver_id = format!("{}.{FT_RECEIVER}", "a".repeat(44));
+        let account_id: AccountId = receiver_id.parse()?;
+
+        near_api::Account::create_account(account_id)
+            .fund_myself(FT_RECEIVER.parse()?, NearToken::from_near(10))
+            .with_public_key(signer().get_public_key().await?)
+            .with_signer(signer())
+            .send_to(&self.config)
+            .await?
+            .into_result()?;
+
+        let receiver = create_contract(
+            &self.config,
+            &receiver_id,
+            ft_receiver_wasm().await?,
+            serde_json::json!({}),
+        )
+        .await?;
+
+        self.lst
+            .ft_storage_deposit(&self.lst.as_account(), receiver.id())
+            .await?;
+
+        Ok(receiver)
+    }
+
     pub async fn deploy_ft_token(&self) -> anyhow::Result<Contract> {
         create_contract(
             &self.config,
