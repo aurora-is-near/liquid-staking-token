@@ -613,3 +613,5 @@ partially consumes the LST tokens.
 4. alice calls withdraw({ receiver_id: "alice.near", withdraw_tokens: { "wnear": {} } })
    → 10 wNEAR returned to alice
 ```
+
+**Service account registration.** The pool and treasury LST accounts cannot unregister, even when their LST balance is zero. Reward fee minting and escrow settlement require these accounts to remain registered.
