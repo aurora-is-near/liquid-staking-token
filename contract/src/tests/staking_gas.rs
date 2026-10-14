@@ -1,6 +1,5 @@
-use super::DepositToken;
-use crate::pool::StakeMessage;
-use crate::test_utils::{context, id, pool, stake_args};
+use crate::pool::{DepositToken, StakeMessage};
+use crate::tests::{context, id, pool, stake_args};
 use near_contract_standards::fungible_token::FungibleTokenCore;
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::json_types::U128;

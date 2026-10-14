@@ -2,7 +2,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::ONE_YOCTO;
 use crate::pool::WithdrawTokens;
-use crate::test_utils::{context, id, pool, success, withdrawal};
+use crate::tests::{context, id, pool, success, withdrawal};
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_contract_standards::fungible_token::{FungibleTokenCore, FungibleTokenResolver};
 use near_contract_standards::storage_management::StorageManagement;

@@ -93,11 +93,3 @@ fn withdraw_gas(args: &UnstakeMessage) -> Gas {
 
     GAS_RESERVE.saturating_add(delivery_gas)
 }
-
-#[cfg(test)]
-#[path = "../../security_tests/withdrawal_gas.rs"]
-mod withdrawal_gas_tests;
-
-#[cfg(test)]
-#[path = "../../security_tests/settlement_lock.rs"]
-mod security_tests;

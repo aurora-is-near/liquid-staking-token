@@ -111,7 +111,3 @@ impl LiquidStakingToken {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "security_tests/holder_count.rs"]
-mod security_tests;

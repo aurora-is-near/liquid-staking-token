@@ -7,7 +7,7 @@ use num_traits::ToPrimitive;
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
-pub use stake::StakeMessage;
+pub use stake::{DepositToken, StakeMessage};
 pub use stats::PoolStatistics;
 pub use unstake::{UnstakeMessage, UnstakeTrigger, WithdrawTokens};
 pub use withdraw::requests::{Tranche, WithdrawalRequest, WithdrawalRequests};
@@ -15,7 +15,7 @@ pub use withdraw::requests::{Tranche, WithdrawalRequest, WithdrawalRequests};
 mod admin;
 mod stake;
 mod stats;
-mod unstake;
+pub(crate) mod unstake;
 mod withdraw;
 
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);

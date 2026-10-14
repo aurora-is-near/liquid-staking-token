@@ -1,7 +1,6 @@
-use super::DepositToken;
 use crate::LiquidStakingToken;
 use crate::pool::StakeMessage;
-use crate::test_utils::{context, id, pool, stake_args, success};
+use crate::tests::{context, id, pool, stake_args, success};
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::json_types::U128;
 use near_sdk::mock::MockAction;
@@ -163,7 +162,7 @@ fn refunded_wnear_deposits_leave_the_tracker() {
         amount,
         amount,
         stake_args(),
-        DepositToken::Wnear,
+        crate::pool::DepositToken::Wnear,
     ));
     assert_eq!(pool.get_total_balance(), tracked);
     assert_eq!(scheduled_call("near_deposit").unwrap().1, amount);

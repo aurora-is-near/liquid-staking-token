@@ -431,11 +431,3 @@ fn stake_gas(args: &StakeMessage) -> Gas {
         gas
     }
 }
-
-#[cfg(test)]
-#[path = "../security_tests/staking_gas.rs"]
-mod security_tests;
-
-#[cfg(test)]
-#[path = "../security_tests/concurrent_stakes.rs"]
-mod concurrent_stakes_tests;

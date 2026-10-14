@@ -95,7 +95,3 @@ impl LiquidStakingToken {
 fn is_external_call() -> bool {
     env::current_account_id() != env::predecessor_account_id()
 }
-
-#[cfg(test)]
-#[path = "security_tests/protected_accounts.rs"]
-mod security_tests;

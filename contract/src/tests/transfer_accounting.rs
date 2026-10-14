@@ -1,6 +1,6 @@
 use crate::ONE_YOCTO;
 use crate::pool::WithdrawTokens;
-use crate::test_utils::{context, locked_withdrawal, pool, success, withdrawal};
+use crate::tests::{context, locked_withdrawal, pool, success, withdrawal};
 use near_sdk::NearToken;
 use near_sdk::json_types::U128;
 

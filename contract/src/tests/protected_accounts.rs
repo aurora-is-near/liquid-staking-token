@@ -1,5 +1,5 @@
 use crate::ONE_YOCTO;
-use crate::test_utils::{context, id, pool};
+use crate::tests::{context, id, pool};
 use near_contract_standards::storage_management::StorageManagement;
 use near_sdk::NearToken;
 use std::panic::{AssertUnwindSafe, catch_unwind};

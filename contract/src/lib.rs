@@ -18,8 +18,7 @@ mod storage;
 mod traits;
 
 #[cfg(test)]
-#[allow(dead_code)]
-mod test_utils;
+mod tests;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);

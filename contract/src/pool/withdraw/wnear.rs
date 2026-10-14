@@ -267,7 +267,3 @@ impl LiquidStakingToken {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../../security_tests/transfer_accounting.rs"]
-mod security_tests;

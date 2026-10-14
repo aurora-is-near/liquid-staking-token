@@ -1,5 +1,5 @@
 use crate::pool::WithdrawTokens;
-use crate::test_utils::{context, pool, withdrawal};
+use crate::tests::{context, pool, withdrawal};
 use near_sdk::NearToken;
 use near_sdk::test_utils::get_created_receipts;
 use std::panic::{AssertUnwindSafe, catch_unwind};
