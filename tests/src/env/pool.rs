@@ -3,9 +3,9 @@ use liquid_staking_token::ONE_YOCTO;
 use liquid_staking_token::pool::{Tranche, WithdrawalRequest};
 use near_api::types::transaction::result::ExecutionSuccess;
 use near_api::{Data, NearToken, PublicKey};
-use near_sdk::CryptoHash;
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json::{Value, json};
+use near_sdk::{CryptoHash, Gas};
 use std::str::FromStr;
 
 use crate::env::types::{Account, Contract};
@@ -84,7 +84,7 @@ impl StakingPool for Contract {
         self.inner
             .call_function("withdraw", json!({ "args": args }))
             .transaction()
-            .max_gas()
+            .gas(Gas::from_tgas(80))
             .with_signer(signer.id().clone(), signer.signer())
             .send_to(self.config())
             .await?
@@ -96,6 +96,7 @@ impl StakingPool for Contract {
         self.inner
             .call_function("ping", ())
             .transaction()
+            .gas(Gas::from_tgas(50))
             .with_signer(self.id().clone(), self.signer())
             .send_to(self.config())
             .await?

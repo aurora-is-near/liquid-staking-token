@@ -163,20 +163,32 @@ impl LiquidStakingToken {
     /// recorded total), treats the excess as newly accrued validator rewards
     /// that get added to the LST's backing NEAR (lifting the exchange rate)
     /// and minted as the configured protocol fee to the treasury.
+    ///
+    /// Returns `0` when rewards were already synced in the current epoch or
+    /// no new rewards are detected. Panics with `Reward sync postponed` while
+    /// in-flight transfers leave the balance below the tracked total, so
+    /// off-chain callers such as the pinger retry once the transfers settle.
     #[pause]
     pub fn ping(&mut self) -> PromiseOrValue<U128> {
-        if self.sync_rewards_internal(None).is_zero() {
-            return PromiseOrValue::Value(U128(0));
+        match self.sync_rewards_internal(None) {
+            SyncRewardsResult::NoRewards | SyncRewardsResult::AlreadySynced => {
+                PromiseOrValue::Value(U128(0))
+            }
+            SyncRewardsResult::RewardsSynced(_) => self
+                .restake_promise()
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_unused_gas_weight(1)
+                        .with_static_gas(RESTAKE_GAS)
+                        .on_restake(),
+                )
+                .into(),
+            SyncRewardsResult::BalanceBelowTracked => {
+                env::panic_str(
+                    "Reward sync postponed: balance is below the tracked total. Try again later.",
+                );
+            }
         }
-
-        self.restake_promise()
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .with_static_gas(RESTAKE_GAS)
-                    .on_restake(),
-            )
-            .into()
     }
 
     #[private]
@@ -199,15 +211,23 @@ impl LiquidStakingToken {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SyncRewardsResult {
+    NoRewards,
+    AlreadySynced,
+    BalanceBelowTracked,
+    RewardsSynced(NearToken),
+}
+
 impl LiquidStakingToken {
     pub(crate) fn sync_rewards_internal(
         &mut self,
         amount_to_exclude: Option<NearToken>,
-    ) -> NearToken {
+    ) -> SyncRewardsResult {
         let current_epoch = env::epoch_height();
 
         if current_epoch == self.statistics.last_epoch_synced {
-            return NearToken::ZERO;
+            return SyncRewardsResult::AlreadySynced;
         }
 
         let current_total_balance = env::account_locked_balance()
@@ -219,7 +239,8 @@ impl LiquidStakingToken {
 
         // Deposits are booked when accepted and payments when settled, so
         // in-flight transfers can only leave the balance below the tracker.
-        // That postpones reward recognition and must not fail the caller.
+        // That postpones reward recognition without failing stake, unstake or
+        // admin callers; only `ping` reports it as a failure so it is retried.
         let Some(total_reward) = current_total_balance.checked_sub(latest_total_balance) else {
             near_sdk::log!(
                 "Reward sync postponed: balance is {} yoctoNEAR below the tracked total",
@@ -228,11 +249,11 @@ impl LiquidStakingToken {
                     .as_yoctonear()
             );
 
-            return NearToken::ZERO;
+            return SyncRewardsResult::BalanceBelowTracked;
         };
 
         if total_reward.is_zero() {
-            return NearToken::ZERO;
+            return SyncRewardsResult::NoRewards;
         }
 
         let (users_reward, fee_near) = self.split_protocol_fee(total_reward);
@@ -254,7 +275,7 @@ impl LiquidStakingToken {
         self.statistics.last_epoch_synced = current_epoch;
         self.statistics.latest_total_balance = current_total_balance;
 
-        total_reward
+        SyncRewardsResult::RewardsSynced(total_reward)
     }
 
     /// Converts a NEAR amount into the LST mint amount at the current exchange

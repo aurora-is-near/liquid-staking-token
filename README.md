@@ -469,20 +469,29 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
   network-config mainnet
 ```
 
-- Anyone may call `ping`. It is a no-op if rewards have already been synced in the current epoch.
+- Anyone may call `ping`. If rewards have already been synced in the current epoch or no new rewards are detected,
+  it returns `0` without scheduling a restake.
 - When new rewards are detected, `ping` re-stakes the new total to the validator so that the locked balance keeps
   earning on the increased principal.
+- If rewards still need to be synced and the live balance is below the tracked total (for example, while wNEAR
+  deposits or outgoing payments are in flight), `ping` fails with
+  `"Reward sync postponed: balance is below the tracked total. Try again later."` No reward accounting is changed
+  and no restake is scheduled by that call. Retry after the pending transfers settle.
 - If the restake action itself fails (e.g. the validator key was retired), `ping`'s callback unstakes everything and
   emits a `Restake failed; …Admin recovery required` log line. The contract then continues serving withdrawals from
   the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` with a working key
   (which now restakes immediately as part of the same call — see [Admin operations](#admin-operations)).
 - `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
-  active users do not need to call `ping` themselves to get an up-to-date exchange rate.
+  active users do not need to call `ping` themselves to get an up-to-date exchange rate. A temporary balance deficit
+  postpones this implicit reward sync without itself failing those operations.
 
 #### Pinger daemon
 
 An off-chain daemon that calls `ping` once per epoch lives in [`pinger/`](./pinger). It subscribes to a NEAR block
 stream, detects when the `epoch_id` changes, and submits the `ping` transaction with exponential-backoff retries.
+The sender checks transaction execution success, so a postponed-sync error from `ping` triggers a retry. Each epoch
+notification allows up to five retries after the initial attempt (six attempts in total). If all attempts fail, the
+daemon logs the failure and waits for the next epoch change; it does not keep retrying throughout the current epoch.
 The crate is a workspace member and ships with its own `Dockerfile`; see [`pinger/README.md`](./pinger/README.md)
 for build, configuration, and deployment.
 
@@ -690,9 +699,10 @@ partially consumes the LST tokens.
 accepts it, before wNEAR delivers the unwrapped NEAR. A failed unwrap or a refund removes the booking. Outgoing
 payments are removed only after they settle. While transfers are in flight, the tracker can therefore run ahead of
 the account balance but never behind it, so unwrapped NEAR from another in-flight stake is never treated as a
-validator reward. Reward sync recognizes only `balance − tracker` when it is positive. If in-flight transfers leave
-the balance below the tracker, the sync is postponed with a `Reward sync postponed` log instead of failing the
-caller, and the remaining reward is recognized by a later sync.
+validator reward. Reward sync recognizes only `balance − tracker` when it is positive. When in-flight transfers
+leave the balance below the tracker, implicit reward sync is postponed with a `Reward sync postponed` log without
+itself failing the stake/unstake operation. A public `ping` that encounters this deficit fails instead, allowing the
+pinger daemon to retry. A later sync recognizes the remaining reward once the pending transfers settle.
 
 Pause new operations and drain outstanding promise chains before upgrading: a wNEAR stake accepted by the previous
 code was not booked on acceptance. Callback argument lists and the Borsh state layout are unchanged.

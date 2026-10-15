@@ -17,6 +17,9 @@ the contract can recalculate rewards and staked amounts.
   10 seconds.
 - A **tx sender** signs and submits the configured contract call on every
   epoch change, with exponential-backoff retries on transient failures.
+  A transaction that executes but fails is retried too: `ping` fails while
+  in-flight transfers postpone the reward sync. Each epoch change allows up to
+  five retries after the initial attempt.
 - The last seen `epoch_id` is persisted to disk so the daemon does not re-ping
   on restart within the same epoch.
 

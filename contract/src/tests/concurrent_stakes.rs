@@ -1,6 +1,6 @@
-use crate::LiquidStakingToken;
 use crate::pool::StakeMessage;
 use crate::tests::{context, id, pool, stake_args, success};
+use crate::{LiquidStakingToken, pool};
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::json_types::U128;
 use near_sdk::mock::MockAction;
@@ -100,7 +100,10 @@ fn concurrent_wnear_deposits_are_booked_before_their_near_arrives() {
     // Once both deposits arrived, only the validator reward is recognized.
     let reward = NearToken::from_near(5);
     callback_context(NearToken::from_near(1205), 2, vec![]);
-    assert_eq!(pool.sync_rewards_internal(None), reward);
+    assert_eq!(
+        pool.sync_rewards_internal(None),
+        pool::SyncRewardsResult::RewardsSynced(reward)
+    );
     assert_eq!(
         pool.get_total_staked_balance(),
         staked.saturating_add(both).saturating_add(reward)
@@ -173,7 +176,32 @@ fn balance_below_the_tracker_postpones_rewards_without_failing() {
     let mut pool = pool();
     let tracked = pool.get_total_balance();
     callback_context(NearToken::from_near(990), 2, vec![]);
-    assert_eq!(pool.sync_rewards_internal(None), NearToken::ZERO);
+    assert_eq!(
+        pool.sync_rewards_internal(None),
+        pool::SyncRewardsResult::BalanceBelowTracked
+    );
     assert_eq!(pool.get_total_balance(), tracked);
     assert_eq!(pool.statistics.last_epoch_synced, 1);
+}
+
+#[test]
+#[should_panic(expected = "Reward sync postponed")]
+fn ping_fails_while_the_balance_is_below_the_tracker() {
+    let mut pool = pool();
+    callback_context(NearToken::from_near(990), 2, vec![]);
+    drop(pool.ping());
+}
+
+#[test]
+fn ping_returns_zero_without_rewards_to_sync() {
+    let mut pool = pool();
+
+    // The epoch is already synced, so a balance deficit does not fail `ping`.
+    callback_context(NearToken::from_near(990), 1, vec![]);
+    assert!(matches!(pool.ping(), PromiseOrValue::Value(U128(0))));
+
+    // A new epoch without accrued rewards.
+    callback_context(NearToken::from_near(1000), 2, vec![]);
+    assert!(matches!(pool.ping(), PromiseOrValue::Value(U128(0))));
+    assert!(get_created_receipts().is_empty());
 }
