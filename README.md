@@ -23,7 +23,8 @@ This liquid staking solution allows NEAR token holders to:
   `ping`; LST holders' NEAR-denominated value grows over time without any per-account claim step
 - **Configurable protocol fee**: A bps fee on each reward sync is minted as LST to a treasury account
   (capped at 20%, owner-adjustable)
-- **Role-based access control**: Admin, pause, and unpause roles for contract management
+- **Role-based access control**: `Admin`, `PauseManager`, `UnpauseManager`, `CodeStager`, and `CodeDeployer` roles
+  for contract management
 - **Pausable user surface**: `stake`, `withdraw`, `ping`, `ft_transfer`, `ft_transfer_call`,
   and `ft_on_transfer` can be paused by accounts holding the pause role
 
@@ -543,8 +544,9 @@ by accounts holding the `Admin` or `PauseManager` role:
 - `ft_transfer`, `ft_transfer_call`
 - `ft_on_transfer` (which gates wNEAR-based staking and LST-based unstaking)
 
-Accounts holding the `Admin` or `UnpauseManager` role may unpause. The `Upgradable` plugin is also enabled — code
-staging, deploying, and upgrade-duration management are all gated on the `Admin` role.
+Accounts holding the `Admin` or `UnpauseManager` role may unpause. The `Upgradable` plugin allows accounts holding
+`Admin` or `CodeStager` to stage code, and accounts holding `Admin` or `CodeDeployer` to deploy staged code.
+Initializing the staging duration, staging a duration update, and applying that update all require `Admin`.
 
 ---
 

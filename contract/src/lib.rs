@@ -36,13 +36,15 @@ enum Role {
     Admin,
     PauseManager,
     UnpauseManager,
+    CodeStager,
+    CodeDeployer,
 }
 
 #[derive(PanicOnDefault, Pausable, Upgradable)]
 #[access_control(role_type(Role))]
 #[upgradable(access_control_roles(
-    code_stagers(Role::Admin),
-    code_deployers(Role::Admin),
+    code_stagers(Role::Admin, Role::CodeStager),
+    code_deployers(Role::Admin, Role::CodeDeployer),
     duration_initializers(Role::Admin),
     duration_update_stagers(Role::Admin),
     duration_update_appliers(Role::Admin),
