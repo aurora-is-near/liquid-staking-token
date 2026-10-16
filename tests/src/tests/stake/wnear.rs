@@ -1158,13 +1158,11 @@ async fn test_wnear_stake_with_exceeded_amount_of_gas() -> TestResult {
         .ft_transfer_call(alice, env.lst.id(), STAKE_AMOUNT, message)
         .await?;
 
-    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.wnear.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
     assert_eq!(env.wnear.ft_balance_of(env.lst.id()).await?, ZERO_AMOUNT);
     assert_eq!(env.lst.ft_balance_of(receiver.id()).await?, ZERO_AMOUNT);
-    assert_eq!(
-        env.lst.ft_balance_of(env.lst.id()).await?, // LST tokens stay on the contract because of exceeded gas
-        INIT_LOCK.saturating_add(STAKE_AMOUNT)
-    );
+    assert_eq!(env.lst.ft_balance_of(env.lst.id()).await?, INIT_LOCK);
+    assert_eq!(env.lst.get_total_pending_withdrawals().await?, ZERO_AMOUNT);
     assert_eq!(
         env.lst.ft_total_supply().await?,
         env.lst.ft_balance_of(env.lst.id()).await?

@@ -127,6 +127,32 @@ impl Env {
             .await
     }
 
+    /// Fast-forwards into the first blocks of the next epoch, so that a short
+    /// receipt chain started right afterward completes within one epoch.
+    pub async fn wait_for_next_epoch_start(&self) -> anyhow::Result<()> {
+        let (epoch_height, epoch_start_height) =
+            tokio_retry::Retry::start(retry_strategy(), || async {
+                near_api::Staking::epoch_validators_info()
+                    .fetch_from(&self.config)
+                    .await
+                    .map(|info| (info.epoch_height, info.epoch_start_height))
+                    .map_err(anyhow::Error::from)
+            })
+            .await?;
+        let current_block = self.block_height().await?;
+        let next_epoch_start = epoch_start_height + BLOCKS_PER_EPOCH;
+
+        self.fast_forward(next_epoch_start.saturating_sub(current_block))
+            .await?;
+
+        // The switch can trail the estimated start height by a few blocks.
+        while self.epoch_height(None).await? == epoch_height {
+            self.fast_forward(1).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn wait_for_epochs(&self, num_epochs: u64) -> anyhow::Result<()> {
         let mut current_epoch = self.epoch_height(None).await?;
         let target_epoch = current_epoch + num_epochs;
@@ -153,6 +179,33 @@ impl Env {
             .await?;
 
         Ok(ft_receiver)
+    }
+
+    pub async fn deploy_long_ft_receiver(&self) -> anyhow::Result<Contract> {
+        let receiver_id = format!("{}.{FT_RECEIVER}", "a".repeat(44));
+        let account_id: AccountId = receiver_id.parse()?;
+
+        near_api::Account::create_account(account_id)
+            .fund_myself(FT_RECEIVER.parse()?, NearToken::from_near(10))
+            .with_public_key(signer().get_public_key().await?)
+            .with_signer(signer())
+            .send_to(&self.config)
+            .await?
+            .into_result()?;
+
+        let receiver = create_contract(
+            &self.config,
+            &receiver_id,
+            ft_receiver_wasm().await?,
+            serde_json::json!({}),
+        )
+        .await?;
+
+        self.lst
+            .ft_storage_deposit(&self.lst.as_account(), receiver.id())
+            .await?;
+
+        Ok(receiver)
     }
 
     pub async fn deploy_ft_token(&self) -> anyhow::Result<Contract> {
@@ -203,6 +256,7 @@ impl Env {
 #[derive(Default)]
 pub struct EnvBuilder {
     without_storage_deposit: bool,
+    without_inflation: bool,
     stake_rewards: Option<[u32; 2]>,
     epoch_length: Option<u64>,
     initial_balance: Option<NearToken>,
@@ -216,6 +270,11 @@ impl EnvBuilder {
 
     pub fn with_stake_rewards(mut self, reward_ratio: [u32; 2]) -> Self {
         self.stake_rewards = Some(reward_ratio);
+        self
+    }
+
+    pub fn without_inflation(mut self) -> Self {
+        self.without_inflation = true;
         self
     }
 
@@ -419,18 +478,23 @@ async fn sandbox_config(builder: &EnvBuilder) -> SandboxConfig {
                 .saturating_add(init_balance)
         });
 
+    let mut genesis = serde_json::json!({
+        "epoch_length": BLOCKS_PER_EPOCH,
+        "min_gas_price": "0",
+        "max_gas_price": "0",
+        "protocol_treasury_account": LST,
+        "total_supply": total_supply,
+        "protocol_reward_rate": builder.stake_rewards.unwrap_or([1, 1]), // do not increase balance with rewards to simplify tests
+    });
+    if builder.without_inflation {
+        genesis["max_inflation_rate"] = serde_json::json!([0, 1]);
+    }
+
     SandboxConfig {
         additional_config: Some(serde_json::json!({
             "validator_key_file": validator_key_file,
         })),
-        additional_genesis: Some(serde_json::json!({
-            "epoch_length": BLOCKS_PER_EPOCH,
-            "min_gas_price": "0",
-            "max_gas_price": "0",
-            "protocol_treasury_account": LST,
-            "total_supply": total_supply,
-            "protocol_reward_rate": builder.stake_rewards.unwrap_or([1, 1]), // do not increase balance with rewards to simplify tests
-        })),
+        additional_genesis: Some(genesis),
         validators: Some(vec![ValidatorAccount {
             account_id: LST.parse().unwrap(),
             public_key: validator_signer()

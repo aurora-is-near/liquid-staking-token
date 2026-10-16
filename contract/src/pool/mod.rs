@@ -7,7 +7,7 @@ use num_traits::ToPrimitive;
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
-pub use stake::StakeMessage;
+pub use stake::{DepositToken, StakeMessage};
 pub use stats::PoolStatistics;
 pub use unstake::{UnstakeMessage, UnstakeTrigger, WithdrawTokens};
 pub use withdraw::requests::{Tranche, WithdrawalRequest, WithdrawalRequests};
@@ -15,14 +15,17 @@ pub use withdraw::requests::{Tranche, WithdrawalRequest, WithdrawalRequests};
 mod admin;
 mod stake;
 mod stats;
-mod unstake;
+pub(crate) mod unstake;
 mod withdraw;
 
 const FT_TRANSFER_GAS: Gas = Gas::from_tgas(2);
 const FT_TRANSFER_CALL_GAS_MIN: Gas = Gas::from_tgas(30);
-const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(2);
-const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(2);
+const MODIFY_STATE_AFTER_STAKE_GAS: Gas = Gas::from_tgas(10);
+const STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(5);
 const RESTAKE_GAS: Gas = Gas::from_tgas(20);
+// Execution, storage access, serialization and promise creation in each parent receipt.
+pub(crate) const GAS_RESERVE: Gas = Gas::from_tgas(15);
+const MAX_MESSAGE_LENGTH: usize = 4096;
 const MAX_RESULT_LENGTH: usize = "\"+340282366920938463463374607431768211455\"".len(); // u128::MAX
 
 #[near(serializers = [json])]
@@ -89,9 +92,10 @@ impl LiquidStakingToken {
         self.statistics.total_pending_withdrawals
     }
 
-    /// Last reading of `account_locked_balance + account_balance`, refreshed
-    /// by reward syncs and balance-affecting calls. Not a live read of the
-    /// account's NEAR balance.
+    /// Tracked `account_locked_balance + account_balance`, refreshed by reward
+    /// syncs and balance-affecting calls. Accepted wNEAR deposits are booked
+    /// before their unwrapped NEAR arrives, so while transfers are in flight
+    /// this may exceed the live balance.
     pub const fn get_total_balance(&self) -> NearToken {
         self.statistics.latest_total_balance
     }
@@ -159,20 +163,32 @@ impl LiquidStakingToken {
     /// recorded total), treats the excess as newly accrued validator rewards
     /// that get added to the LST's backing NEAR (lifting the exchange rate)
     /// and minted as the configured protocol fee to the treasury.
+    ///
+    /// Returns `0` when rewards were already synced in the current epoch or
+    /// no new rewards are detected. Panics with `Reward sync postponed` while
+    /// in-flight transfers leave the balance below the tracked total, so
+    /// off-chain callers such as the pinger retry once the transfers settle.
     #[pause]
     pub fn ping(&mut self) -> PromiseOrValue<U128> {
-        if self.sync_rewards_internal(None).is_zero() {
-            return PromiseOrValue::Value(U128(0));
+        match self.sync_rewards_internal(None) {
+            SyncRewardsResult::NoRewards | SyncRewardsResult::AlreadySynced => {
+                PromiseOrValue::Value(U128(0))
+            }
+            SyncRewardsResult::RewardsSynced(_) => self
+                .restake_promise()
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_unused_gas_weight(1)
+                        .with_static_gas(RESTAKE_GAS)
+                        .on_restake(),
+                )
+                .into(),
+            SyncRewardsResult::BalanceBelowTracked => {
+                env::panic_str(
+                    "Reward sync postponed: balance is below the tracked total. Try again later.",
+                );
+            }
         }
-
-        self.restake_promise()
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_unused_gas_weight(1)
-                    .with_static_gas(RESTAKE_GAS)
-                    .on_restake(),
-            )
-            .into()
     }
 
     #[private]
@@ -195,15 +211,23 @@ impl LiquidStakingToken {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SyncRewardsResult {
+    NoRewards,
+    AlreadySynced,
+    BalanceBelowTracked,
+    RewardsSynced(NearToken),
+}
+
 impl LiquidStakingToken {
     pub(crate) fn sync_rewards_internal(
         &mut self,
         amount_to_exclude: Option<NearToken>,
-    ) -> NearToken {
+    ) -> SyncRewardsResult {
         let current_epoch = env::epoch_height();
 
         if current_epoch == self.statistics.last_epoch_synced {
-            return NearToken::ZERO;
+            return SyncRewardsResult::AlreadySynced;
         }
 
         let current_total_balance = env::account_locked_balance()
@@ -211,17 +235,25 @@ impl LiquidStakingToken {
             .and_then(|balance| balance.checked_sub(amount_to_exclude.unwrap_or_default()))
             .unwrap_or_else(|| env::panic_str("Overflow while calculating actual total balance"));
 
-        let latest_total_balance = self.statistics.latest_total_balance;
+        let latest_total_balance = self.get_total_balance();
 
-        require!(
-            current_total_balance >= latest_total_balance,
-            "The new total balance should not be less than the old total balance",
-        );
+        // Deposits are booked when accepted and payments when settled, so
+        // in-flight transfers can only leave the balance below the tracker.
+        // That postpones reward recognition without failing stake, unstake or
+        // admin callers; only `ping` reports it as a failure so it is retried.
+        let Some(total_reward) = current_total_balance.checked_sub(latest_total_balance) else {
+            near_sdk::log!(
+                "Reward sync postponed: balance is {} yoctoNEAR below the tracked total",
+                latest_total_balance
+                    .saturating_sub(current_total_balance)
+                    .as_yoctonear()
+            );
 
-        let total_reward = current_total_balance.saturating_sub(latest_total_balance);
+            return SyncRewardsResult::BalanceBelowTracked;
+        };
 
         if total_reward.is_zero() {
-            return NearToken::ZERO;
+            return SyncRewardsResult::NoRewards;
         }
 
         let (users_reward, fee_near) = self.split_protocol_fee(total_reward);
@@ -243,7 +275,7 @@ impl LiquidStakingToken {
         self.statistics.last_epoch_synced = current_epoch;
         self.statistics.latest_total_balance = current_total_balance;
 
-        total_reward
+        SyncRewardsResult::RewardsSynced(total_reward)
     }
 
     /// Converts a NEAR amount into the LST mint amount at the current exchange
@@ -299,6 +331,19 @@ impl LiquidStakingToken {
             self.validator_public_key.clone(),
         )
     }
+}
+
+pub(crate) fn assert_gas(required: Gas) {
+    require!(
+        env::prepaid_gas().saturating_sub(env::used_gas()) >= required,
+        "Insufficient prepaid gas for the complete operation"
+    );
+}
+
+fn assert_message_size<T: near_sdk::serde::Serialize>(message: &T) {
+    let bytes = near_sdk::serde_json::to_vec(message)
+        .unwrap_or_else(|_| env::panic_str("Failed to serialize message"));
+    require!(bytes.len() <= MAX_MESSAGE_LENGTH, "Message is too large");
 }
 
 #[inline]

@@ -1,4 +1,4 @@
-use near_sdk::{AccountId, PromiseOrValue, env, json_types::U128, near};
+use near_sdk::{AccountId, Gas, PromiseOrValue, env, json_types::U128, near};
 
 #[derive(Default)]
 #[near(contract_state)]
@@ -24,6 +24,12 @@ impl Contract {
         msg: String,
     ) -> PromiseOrValue<U128> {
         let _ = sender_id;
+        if msg == "large_result" {
+            return Self::ext(env::current_account_id())
+                .with_static_gas(Gas::from_tgas(10))
+                .large_result()
+                .into();
+        }
         let (refund_amount, is_refund_once) = parse_refund_msg(&msg);
         let refund_amount = if is_refund_once && self.refund_once_used {
             0
@@ -36,6 +42,12 @@ impl Contract {
         };
 
         PromiseOrValue::Value(U128(amount.0.min(refund_amount)))
+    }
+
+    #[result_serializer(borsh)]
+    #[must_use]
+    pub fn large_result() -> Vec<u8> {
+        vec![b'x'; 64 * 1024]
     }
 }
 

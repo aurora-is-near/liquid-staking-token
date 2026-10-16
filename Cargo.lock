@@ -3228,7 +3228,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "ft-receiver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "near-sdk",
 ]
@@ -4534,7 +4534,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "liquid-staking-token"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "defuse-near-utils",
  "near-contract-standards",
@@ -4565,7 +4565,7 @@ dependencies = [
 
 [[package]]
 name = "liquid-staking-token-tests"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cargo-near-build",

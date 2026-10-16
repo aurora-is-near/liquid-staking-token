@@ -5,7 +5,7 @@ use near_sdk::{
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt};
 
-const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(5);
+const ON_UNSTAKE_GAS: Gas = Gas::from_tgas(15);
 
 /// Specifies the type of token to withdraw and associated withdrawal parameters.
 ///

@@ -316,7 +316,7 @@ async fn test_two_unstakes_by_sending_lst_from_wnear() -> TestResult {
     );
     assert_eq!(
         env.lst.get_total_balance().await?,
-        INIT_BALANCE.saturating_add(TWO_YOCTO) // ft_transfer_call + ft_transfer_call
+        INIT_BALANCE.saturating_add(ONE_YOCTO) // two incoming FT deposits minus the outgoing FT deposit
     );
 
     assert_eq!(
@@ -609,9 +609,16 @@ async fn test_stake_native_near_by_itself_and_unstake_wnear_to_itself() -> TestR
 
     env.wait_unstake_cooldown().await?;
 
+    let tracked_balance_before_withdraw = env.lst.get_total_balance().await?;
+
     env.lst
         .withdraw(&env.lst.as_account(), &unstake_message)
         .await?;
+
+    assert_eq!(
+        env.lst.get_total_balance().await?,
+        tracked_balance_before_withdraw.saturating_sub(STAKE_AMOUNT)
+    );
 
     assert_eq!(
         env.lst.near_balance().await?.total,

@@ -13,6 +13,7 @@ mod ft;
 mod multi_user;
 mod pool;
 mod rewards;
+mod security;
 mod stake;
 mod storage;
 mod unstake;

@@ -70,10 +70,9 @@ impl PoolStatistics {
             .unwrap_or_else(|| env::panic_str("Overflow while increasing delegator"));
     }
 
-    pub fn decrease_delegators(&mut self) {
-        self.num_delegators = self
-            .num_delegators
-            .checked_sub(1)
-            .unwrap_or_else(|| env::panic_str("Underflow while decreasing delegator"));
+    pub const fn decrease_delegators(&mut self) {
+        // Old deployments may already have an undercount. This statistic must
+        // not make a funds-settlement callback panic after the transfer committed.
+        self.num_delegators = self.num_delegators.saturating_sub(1);
     }
 }

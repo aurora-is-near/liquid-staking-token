@@ -120,6 +120,7 @@ async fn test_storage_unregister_with_zero_balance_succeeds() -> TestResult {
     let alice = env.alice();
     let alice_balance_before = alice.near_balance().await?;
     let initial_total_balance = env.lst.get_total_balance().await?;
+    let initial_holder_count = env.lst.get_number_of_accounts().await?;
 
     env.lst.ft_storage_deposit(alice, alice.id()).await?;
 
@@ -132,6 +133,10 @@ async fn test_storage_unregister_with_zero_balance_succeeds() -> TestResult {
     env.lst.ft_storage_unregister(alice, None).await?;
 
     assert!(env.lst.ft_storage_balance_of(alice.id()).await?.is_none());
+    assert_eq!(
+        env.lst.get_number_of_accounts().await?,
+        initial_holder_count
+    );
     assert_eq!(env.lst.get_total_balance().await?, initial_total_balance);
     assert_eq!(alice.near_balance().await?, alice_balance_before);
 
@@ -152,6 +157,7 @@ async fn test_storage_unregister_with_non_zero_balance_without_force_fails() -> 
         .await?;
 
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    let holder_count = env.lst.get_number_of_accounts().await?;
 
     let result = env.lst.ft_storage_unregister(alice, None).await;
     assert_transaction_failure_contains(result, NON_ZERO_BALANCE_UNREGISTER_ERROR);
@@ -162,6 +168,7 @@ async fn test_storage_unregister_with_non_zero_balance_without_force_fails() -> 
         ZERO_AMOUNT,
     );
     assert_eq!(env.lst.ft_balance_of(alice.id()).await?, STAKE_AMOUNT);
+    assert_eq!(env.lst.get_number_of_accounts().await?, holder_count);
     assert_eq!(
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
@@ -189,11 +196,14 @@ async fn test_storage_unregister_with_non_zero_balance_and_force_burns_balance()
         env.lst.ft_total_supply().await?,
         INIT_LOCK.saturating_add(STAKE_AMOUNT)
     );
+    let holder_count = env.lst.get_number_of_accounts().await?;
 
     env.lst.ft_storage_unregister(alice, Some(true)).await?;
 
     assert!(env.lst.ft_storage_balance_of(alice.id()).await?.is_none());
     assert_eq!(env.lst.ft_total_supply().await?, INIT_LOCK);
+    assert_eq!(env.lst.ft_balance_of(alice.id()).await?, ZERO_AMOUNT);
+    assert_eq!(env.lst.get_number_of_accounts().await?, holder_count - 1);
 
     let alice_balance_after = alice.near_balance().await?;
     // Force unregister burns Alice's LST balance, so she loses her staking position.
