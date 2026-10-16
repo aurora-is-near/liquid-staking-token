@@ -1,5 +1,7 @@
 # Liquid Staking Token
 
+[Release notes](CHANGES.md)
+
 A NEAR Protocol smart contract that enables liquid staking functionality. Users can stake their NEAR tokens and receive
 liquid staking tokens (LST) in return, maintaining liquidity while earning staking rewards.
 
