@@ -1,5 +1,7 @@
 # Liquid Staking Token
 
+[Release notes](CHANGES.md)
+
 A NEAR Protocol smart contract that enables liquid staking functionality. Users can stake their NEAR tokens and receive
 liquid staking tokens (LST) in return, maintaining liquidity while earning staking rewards.
 
@@ -23,7 +25,8 @@ This liquid staking solution allows NEAR token holders to:
   `ping`; LST holders' NEAR-denominated value grows over time without any per-account claim step
 - **Configurable protocol fee**: A bps fee on each reward sync is minted as LST to a treasury account
   (capped at 20%, owner-adjustable)
-- **Role-based access control**: Admin, pause, and unpause roles for contract management
+- **Role-based access control**: `Admin`, `PauseManager`, `UnpauseManager`, `CodeStager`, and `CodeDeployer` roles
+  for contract management
 - **Pausable user surface**: `stake`, `withdraw`, `ping`, `ft_transfer`, `ft_transfer_call`,
   and `ft_on_transfer` can be paused by accounts holding the pause role
 
@@ -203,7 +206,7 @@ The contract unwraps the wNEAR to NEAR internally, stakes it, and transfers the 
 | `is_storage_deposit` | `bool`           | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the staked amount and calls `storage_deposit` on the LST contract for `receiver_id`. Required when `receiver_id` is not yet registered. **Set only when registration is needed** — if `receiver_id` is already registered, the 1250 µNEAR is not refunded to the sender; it stays on the contract and accrues to the pool as a reward on the next sync. Defaults to `false`. |
 | `msg`                | `String`         | No       | If present, `ft_on_transfer` is called on `receiver_id` after the LST tokens are minted (passing this string as `msg`). If absent, no callback is made. Useful when the receiver is a contract that needs to be notified (e.g. an intents/DEX contract).                                                                                                                                                                                                |
 | `memo`               | `String`         | No       | Memo forwarded to the `ft_on_transfer` call. Ignored when `msg` is absent.                                                                                                                                                                                                                                                                                                                                                                              |
-| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 35 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas.                                                                                                                                                                                                                                                                                           |
+| `min_gas`            | `Gas` (u64)      | No       | Minimum gas (in gas units) attached to the `ft_on_transfer` step. Defaults to 30 TGas for calls with a message; lower values are raised to 30 TGas. Increase if the downstream `ft_on_transfer` handler requires more gas. Every TGas above the default raises the required gas reservation by the same amount.                                                                                                     |
 | `refund_message`     | `UnstakeMessage` | No       | If `msg` is set and `receiver_id` returns a partial or full refund from `ft_on_transfer`, the contract automatically initiates an unstake using this message. The refunded LST tokens are burned and the corresponding NEAR enters the withdrawal queue. If omitted, refunded tokens remain on `receiver_id` with no automatic recovery.                                                                                                                |
 
 **Token amount minted.** The amount of LST minted is `stake_amount * total_lst_supply / total_staked_amount`, floored
@@ -221,6 +224,36 @@ already reflected, so neither stake amount is lost.
 rolls back the state changes (`total_staked_amount`, the minted LST, and the tracked total balance) and refunds
 the deposit — native NEAR is transferred back to the sender; wNEAR is re-wrapped via `near_deposit` and returned.
 The user's LST balance is left untouched.
+
+**Gas safety.** Attach 200 TGas for the documented staking flows. The contract checks the remaining gas before
+accepting native NEAR or unwrapping wNEAR, and reserves static gas for the entire callback chain. A rejected wNEAR
+stake returns its tokens through the wNEAR resolver, without borrowing any existing withdrawal residual.
+The reservation grows with `min_gas` and optional storage registration. With the default receiver gas and no storage
+registration, it is 90 TGas for native staking, 125 TGas with `msg`, 115 TGas inside wNEAR `ft_on_transfer`, or
+150 TGas inside wNEAR `ft_on_transfer` with `msg`. Storage registration adds 5 TGas. Allow additional gas for the
+entry receipt and wNEAR's outer transfer/resolver; these numbers are reservations, not transaction gas
+recommendations:
+
+| Flow                                      | Reservation (default `min_gas`) | Recommended transaction gas  |
+|-------------------------------------------|---------------------------------|------------------------------|
+| `stake` with native NEAR                  | 90 TGas (125 TGas with `msg`)   | 200 TGas                     |
+| `ft_transfer_call` on wNEAR to the LST    | 115 TGas (150 TGas with `msg`)  | 200 TGas (wNEAR keeps 30)    |
+| `msg` with `min_gas` above 30 TGas        | + (`min_gas` − 30 TGas)         | + (`min_gas` − 30 TGas)      |
+
+For a custom `min_gas`, adding its increase over 30 TGas to the 200 TGas recommendation preserves the same margin.
+This is a conservative recommendation, not the exact minimum. The complete budget, including execution overhead
+and any outer calls, must fit within NEAR's [1 PGas (1000 TGas) transaction gas limit](https://github.com/near/nearcore/blob/master/CHANGELOG.md#2110).
+Near that limit, calculate the reservation and overhead explicitly instead of simply capping the recommendation.
+
+If the remaining-gas check rejects a stake, it does so before changing the staking state: native NEAR is refunded
+with the failed receipt, and wNEAR is returned to the sender by the wNEAR resolver.
+
+**Staking through NEAR Intents.** An Intents `ft_withdraw` of wNEAR with a `StakeMessage` as `msg` attaches only its
+`min_gas` (50 TGas by default) plus a share of the relayer's leftover gas to the wNEAR `ft_transfer_call`. Set the
+intent's `min_gas` to at least 200 TGas (more with a custom `StakeMessage.min_gas`). Otherwise the stake may be
+rejected and the wNEAR returned to the user's Intents balance.
+
+The serialized `StakeMessage`, including nested messages and memo, is limited to 4096 bytes so callback work stays bounded.
 
 ---
 
@@ -242,6 +275,10 @@ near contract call-function as-transaction <CONTRACT_ID> ft_transfer_call \
   sign-as alice.near \
   network-config mainnet
 ```
+
+Attach at least 100 TGas. The unstake runs in the LST contract's own `ft_on_transfer`, which receives only the gas
+left after the transfer; the transfer resolver and the unstake settlement callback each reserve 15 TGas. With too
+little gas the unstake is rejected and the LST is refunded by the NEP-141 resolver.
 
 On success the LST tokens are burned and an **independent withdrawal tranche** is recorded under the hash of the
 `UnstakeMessage`. The NEAR for that tranche is released only after the **4-epoch cooldown** measured from this
@@ -293,7 +330,7 @@ The unstaked NEAR is sent as a native NEAR transfer to `receiver_id` once `withd
     "is_storage_deposit": true,           // optional, default false
     "msg":                "...",          // optional
     "memo":               "my unstake",   // optional
-    "min_gas":            35000000000000  // optional
+    "min_gas":            60000000000000  // optional; includes ~30 TGas kept by wNEAR
   }
 }
 ```
@@ -305,7 +342,7 @@ The unstaked NEAR is wrapped back to wNEAR and delivered to `receiver_id`.
 | `is_storage_deposit` | `bool`      | No       | When `true`, the contract deducts a fixed `0.00125 NEAR` (1250 µNEAR) from the withdrawn amount and calls `storage_deposit` on the wNEAR contract for `receiver_id`. **Set only when registration is needed** — if `receiver_id` is already registered on wNEAR, the 1250 µNEAR is not refunded to the user; it ends up on the LST contract's balance and accrues to the pool as a reward. Defaults to `false`. |
 | `msg`                | `String`    | No       | If present, delivers wNEAR via `ft_transfer_call` on the wNEAR contract (passing this string as `msg`). If absent, a plain `ft_transfer` is used.                                                                                                                                                                                                                                                               |
 | `memo`               | `String`    | No       | Memo forwarded to the wNEAR `ft_transfer_call`.                                                                                                                                                                                                                                                                                                                                                                 |
-| `min_gas`            | `Gas` (u64) | No       | Minimum gas for the wNEAR transfer step. Defaults to 35 TGas.                                                                                                                                                                                                                                                                                                                                                   |
+| `min_gas`            | `Gas` (u64) | No       | Static gas attached to the wNEAR transfer step: `ft_transfer_call` when `msg` is set (default and minimum 30 TGas), plain `ft_transfer` otherwise (default and minimum 2 TGas). wNEAR keeps about 30 TGas of an `ft_transfer_call` for itself, so the receiver's `ft_on_transfer` is guaranteed only `min_gas − 30 TGas` plus a share of unused gas. Set it to 30 TGas plus what the receiver needs. The field is part of the queue hash and cannot be changed for an existing claim; choose it so the complete [`withdraw` gas budget](#withdrawing-after-cooldown) fits within the 1 PGas transaction limit. |
 
 > **Important:** the same `UnstakeMessage` JSON you pass during unstaking must be passed again verbatim when calling
 `withdraw`. The contract derives a Keccak-256 hash of the message and uses it as the queue key.
@@ -343,14 +380,17 @@ A few consequences worth knowing:
   already-matured tranche and is picked up by the next `withdraw` along with any other matured tranches under the
   same hash — no fresh 4-epoch wait. Re-unstaking into the same hash in the meantime simply appends a new
   independent tranche; the residual is unaffected.
-- **An oversize `ft_on_transfer` result is treated as full delivery.** A misbehaving receiver that returns a
-  payload exceeding the contract's result-size cap (~42 bytes) trips a parse error in our `on_withdraw_wnear`
-  callback. The wNEAR transfer itself succeeded, so we mark the in-flight tranche as fully consumed and the user's
-  claim is zeroed. The same code path also fires when the wNEAR contract itself panics (e.g. gas exhaustion) —
-  this is a known limitation; in practice wNEAR is robust enough that real panics are extremely rare.
-- **A failed plain `ft_transfer` (no `msg`)** rolls back the callback receipt; the in-flight tranche stays locked
-  with its full claim intact, and the chain's terminal `remove_lock` callback unlocks it so the user can retry —
-  no cooldown reset, no residual recorded.
+- **A failed settlement stays locked.** An invalid or oversized successful result from wNEAR itself,
+  or a failed settlement callback, has an uncertain payment outcome. Settlement retains the lock to prevent
+  a second payout. Admin recovery must inspect the actual delivery receipts before releasing it.
+- **A failed plain `ft_transfer` remains retryable.** Settlement preserves the unpaid claim and returns normally;
+  the same callback releases its lock. A failed `ft_transfer_call` is still considered fully consumed,
+  since failure of its returned promise chain does not prove that no tokens were delivered.
+- **Settlement and unlocking are atomic.** No separate cleanup callback unlocks claims. The
+  `remove_lock` endpoint has been removed, so an old callback cannot unlock a subsequent withdrawal
+  under the same message hash. This requires no state migration. Pause new withdrawals and let
+  existing chains finish before upgrading: already scheduled calls to the removed endpoint will fail,
+  and any locked residual or unpaid claim left by an old settlement will need admin reconciliation.
 
 ---
 
@@ -367,11 +407,33 @@ near contract call-function as-transaction <CONTRACT_ID> withdraw \
       "withdraw_tokens": "native"
     }
   }' \
-  prepaid-gas '80 Tgas' \
+  prepaid-gas '120 Tgas' \
   attached-deposit '0 NEAR' \
   sign-as alice.near \
   network-config mainnet
 ```
+
+Before locking the claim, `withdraw` checks that the remaining gas covers the whole delivery and its settlement:
+
+| `withdraw_tokens`                     | Required remaining gas at the check               |
+|---------------------------------------|--------------------------------------------------|
+| `"native"`                            | 30 TGas                                          |
+| `wnear`, receiver is the LST contract | 40 TGas                                          |
+| `wnear` without `msg`                 | 40 TGas + `min_gas` (42 TGas by default)         |
+| `wnear` with `msg`                    | 40 TGas + `min_gas` (70 TGas by default)         |
+
+For an external wNEAR receiver, `is_storage_deposit` adds 5 TGas. These are remaining-gas thresholds, so the attached
+gas must also cover execution before the check. Attach 120 TGas for the default variants. For external wNEAR
+delivery, adding any increase in `min_gas` above its default to 120 TGas is a conservative recommendation that
+preserves the same margin; it is not the exact minimum.
+
+The complete transaction must fit within 1 PGas (1000 TGas). For external wNEAR delivery, this means `min_gas`
+plus 40 TGas, another 5 TGas if registration is requested, and execution before the check must fit within that
+limit. Near the ceiling, calculate this budget explicitly instead of capping the recommendation at 1000 TGas.
+Choose `min_gas` with this budget in mind when unstaking: it cannot be changed for an existing claim.
+
+If the remaining-gas check fails, the claim has not been locked and no tokens have been sent, so the call can be
+retried with more gas.
 
 The contract:
 
@@ -387,8 +449,8 @@ If no tranche has matured, the call panics with
 
 A given message hash can have **at most one `withdraw` call in flight at a time**. Concurrent `withdraw` calls for
 the same `UnstakeMessage` hash — both native and wNEAR variants — are rejected with `"Unstake request is already in
-progress"`. The in-flight tranche is locked while the FT chain is pending and unlocked by the chain's terminal
-callback, so callers should wait for the prior call to finish before retrying.
+progress"`. The in-flight tranche is locked while the delivery is pending and unlocked by its settlement callback,
+in the same receipt that records the result, so callers should wait for the prior call to finish before retrying.
 
 ---
 
@@ -410,20 +472,29 @@ near contract call-function as-transaction <CONTRACT_ID> ping \
   network-config mainnet
 ```
 
-- Anyone may call `ping`. It is a no-op if rewards have already been synced in the current epoch.
+- Anyone may call `ping`. If rewards have already been synced in the current epoch or no new rewards are detected,
+  it returns `0` without scheduling a restake.
 - When new rewards are detected, `ping` re-stakes the new total to the validator so that the locked balance keeps
   earning on the increased principal.
+- If rewards still need to be synced and the live balance is below the tracked total (for example, while wNEAR
+  deposits or outgoing payments are in flight), `ping` fails with
+  `"Reward sync postponed: balance is below the tracked total. Try again later."` No reward accounting is changed
+  and no restake is scheduled by that call. Retry after the pending transfers settle.
 - If the restake action itself fails (e.g. the validator key was retired), `ping`'s callback unstakes everything and
   emits a `Restake failed; …Admin recovery required` log line. The contract then continues serving withdrawals from
   the unbonded NEAR but stops earning rewards until an admin calls `set_validator_public_key` with a working key
   (which now restakes immediately as part of the same call — see [Admin operations](#admin-operations)).
 - `sync_rewards_internal` also runs implicitly inside `stake`, the wNEAR-staking callback, and `handle_unstaking`, so
-  active users do not need to call `ping` themselves to get an up-to-date exchange rate.
+  active users do not need to call `ping` themselves to get an up-to-date exchange rate. A temporary balance deficit
+  postpones this implicit reward sync without itself failing those operations.
 
 #### Pinger daemon
 
 An off-chain daemon that calls `ping` once per epoch lives in [`pinger/`](./pinger). It subscribes to a NEAR block
 stream, detects when the `epoch_id` changes, and submits the `ping` transaction with exponential-backoff retries.
+The sender checks transaction execution success, so a postponed-sync error from `ping` triggers a retry. Each epoch
+notification allows up to five retries after the initial attempt (six attempts in total). If all attempts fail, the
+daemon logs the failure and waits for the next epoch change; it does not keep retrying throughout the current epoch.
 The crate is a workspace member and ships with its own `Dockerfile`; see [`pinger/README.md`](./pinger/README.md)
 for build, configuration, and deployment.
 
@@ -452,7 +523,7 @@ near contract call-function as-transaction <CONTRACT_ID> set_protocol_fee_bps \
 | `get_reward_fee_fraction`                              | `{ numerator (u16), denominator (u16) }` (bps / 10000) | Currently configured protocol fee.                                                                                                                                        |
 | `get_total_staked_balance`                             | `NearToken`                                            | Tracked NEAR backing the LST supply.                                                                                                                                      |
 | `get_total_pending_withdrawals`                        | `NearToken`                                            | Sum of NEAR amounts queued for withdrawal.                                                                                                                                |
-| `get_total_balance`                                    | `NearToken`                                            | Last-recorded `locked + unlocked` balance in NEAR.                                                                                                                        |
+| `get_total_balance`                                    | `NearToken`                                            | Tracked `locked + unlocked` balance in NEAR. May exceed the live balance while accepted wNEAR deposits are in flight.                                                     |
 | `get_number_of_accounts`                               | `u64`                                                  | Number of LST holders.                                                                                                                                                    |
 | `get_owner_id` / `get_treasury_id`                     | `AccountId`                                            | Configured roles.                                                                                                                                                         |
 | `get_staking_key`                                      | `PublicKey`                                            | Validator key the contract delegates to.                                                                                                                                  |
@@ -475,8 +546,9 @@ by accounts holding the `Admin` or `PauseManager` role:
 - `ft_transfer`, `ft_transfer_call`
 - `ft_on_transfer` (which gates wNEAR-based staking and LST-based unstaking)
 
-Accounts holding the `Admin` or `UnpauseManager` role may unpause. The `Upgradable` plugin is also enabled — code
-staging, deploying, and upgrade-duration management are all gated on the `Admin` role.
+Accounts holding the `Admin` or `UnpauseManager` role may unpause. The `Upgradable` plugin allows accounts holding
+`Admin` or `CodeStager` to stage code, and accounts holding `Admin` or `CodeDeployer` to deploy staged code.
+Initializing the staging duration, staging a duration update, and applying that update all require `Admin`.
 
 ---
 
@@ -525,8 +597,10 @@ near contract call-function as-transaction <CONTRACT_ID> add_full_access_key \
 - Adds a full access key to the contract's account so the holder can sign arbitrary actions (manual stake, transfer,
   redeploy, etc.) directly against it.
 - Intended as a break-glass mechanism, primarily to recover from a dead validator that prevents `ping` from firing a
-  fresh stake. Use sparingly: there is no on-chain `delete_key` method, so a granted key can only be removed via a
-  contract upgrade.
+  fresh stake. Use sparingly and revoke recovery keys when they are no longer needed.
+- A valid full-access key of the contract account can revoke keys with a native `DeleteKey` transaction;
+  no contract method or code upgrade is required.
+- Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ### `force_release_lock` — clear a stuck in-flight withdrawal
 
@@ -541,10 +615,9 @@ near contract call-function as-transaction <CONTRACT_ID> force_release_lock \
 
 - Unlocks the in-flight (locked) tranche queued under `hash`, leaving any other tranches untouched.
 - Returns `true` if a locked tranche was found and released, `false` otherwise.
-- Intended as a break-glass for the rare case where the tail `remove_lock` callback of a `withdraw` chain fails
-  to fire (gas exhaustion in a deeply nested receipt, etc.) and the in-flight tranche stays locked, blocking
-  every subsequent `withdraw` for that hash with `"Unstake request is already in progress"`. After release, the
-  user can retry `withdraw` normally.
+- Intended for recovery when settlement fails or an upgrade leaves an in-flight tranche locked. Before
+  releasing it, verify that the delivery did not succeed. Releasing a successfully paid but unsettled claim
+  permits a second payout; reconcile such a claim before any unlock or retry.
 - Requires 1 yoctoNEAR attached for full-access-key confirmation.
 
 ---
@@ -613,3 +686,27 @@ partially consumes the LST tokens.
 4. alice calls withdraw({ receiver_id: "alice.near", withdraw_tokens: { "wnear": {} } })
    → 10 wNEAR returned to alice
 ```
+
+**Holder-count upgrades.** Holder statistics change only when an account crosses between zero and nonzero LST balance. This prevents further counter corruption; it does not reconstruct an already incorrect historical count.
+
+**Service account registration.** The pool and treasury LST accounts cannot unregister, even when their LST balance is zero. Reward fee minting and escrow settlement require these accounts to remain registered.
+
+**Uncertain withdrawal settlement.** The claim stays locked when its settlement callback fails or returns an invalid result. Before force-releasing such a lock, inspect delivery receipts and reconcile any completed payment to prevent a second payout.
+
+**wNEAR transfer deposits.** The NEAR balance tracker includes the one-yocto deposit spent on each external FT transfer, including attempts that send only residual wNEAR. Self-withdrawals spend no FT transfer deposit. The callback keeps its original argument list and JSON field names; new calls include the transfer deposit in the cost carried by `amount_to_near_deposit`, with storage accounted for separately.
+
+**Withdrawal gas safety.** Before locking a claim, the contract checks the remaining gas against the delivery budget, a 15 TGas settlement callback and execution overhead. There is no separate cleanup callback. Clients and bots that call `withdraw` with less than the required gas (see [Withdrawing after cooldown](#withdrawing-after-cooldown)) must raise it; 120 TGas covers the default variants.
+
+**FT resolver gas.** LST transfer resolvers and unstake settlement callbacks reserve 15 TGas. Regression tests exercise full refunds, long account names, a crowded storage trie and a 64 KiB receiver result.
+
+**Concurrent wNEAR stakes.** A wNEAR deposit is booked in the NEAR balance tracker as soon as `ft_on_transfer`
+accepts it, before wNEAR delivers the unwrapped NEAR. A failed unwrap or a refund removes the booking. Outgoing
+payments are removed only after they settle. While transfers are in flight, the tracker can therefore run ahead of
+the account balance but never behind it, so unwrapped NEAR from another in-flight stake is never treated as a
+validator reward. Reward sync recognizes only `balance − tracker` when it is positive. When in-flight transfers
+leave the balance below the tracker, implicit reward sync is postponed with a `Reward sync postponed` log without
+itself failing the stake/unstake operation. A public `ping` that encounters this deficit fails instead, allowing the
+pinger daemon to retry. A later sync recognizes the remaining reward once the pending transfers settle.
+
+Pause new operations and drain outstanding promise chains before upgrading: a wNEAR stake accepted by the previous
+code was not booked on acceptance. Callback argument lists and the Borsh state layout are unchanged.

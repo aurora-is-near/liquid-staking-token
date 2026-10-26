@@ -10,7 +10,7 @@
 use near_contract_standards::storage_management::{
     StorageBalance, StorageBalanceBounds, StorageManagement,
 };
-use near_sdk::{AccountId, NearToken, env, near};
+use near_sdk::{AccountId, NearToken, env, near, require};
 
 use crate::{LiquidStakingToken, LiquidStakingTokenExt, ONE_YOCTO};
 
@@ -51,7 +51,17 @@ impl StorageManagement for LiquidStakingToken {
 
     #[payable]
     fn storage_unregister(&mut self, force: Option<bool>) -> bool {
+        let account_id = env::predecessor_account_id();
+        require!(
+            account_id != env::current_account_id() && account_id != self.treasury_id,
+            "Pool and treasury accounts cannot unregister"
+        );
+        let burns_lst_balance = force == Some(true) && !self.is_zero_balance(&account_id);
         let unregistered = self.token.storage_unregister(force);
+
+        if unregistered && burns_lst_balance {
+            self.statistics.decrease_delegators();
+        }
 
         if is_external_call() {
             if unregistered {
